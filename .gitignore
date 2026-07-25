@@ -28,6 +28,11 @@ Systematic Commodity Trading Research Report.pdf
 CTA Feature Engineering Primer.pdf
 notebooks/
 cleanup.md
+databento/DATA_QUALITY_REPORT.md
+databento/DATA_QUALITY_REPORT.pdf
+databento/submit_databento_jobs.py
+databento/retry_databento_jobs.py
+databento/archive_to_drive.py
 
 # Third-party copyrighted academic papers -- not ours to redistribute.
 # The papers used, and what each is used for, are cited directly in
