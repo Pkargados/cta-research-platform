@@ -2,7 +2,10 @@
 # files here are large or grow daily (yang_zhang_features.parquet, term_structure.parquet,
 # manifests). Keep it out of version control; DATA_SCHEMA.md documents what's produced
 # and how to regenerate it.
-Data/
+# Anchored to repo root (leading slash) -- on a case-insensitive filesystem,
+# an unanchored "Data/" also matched "src/data/", silently untracking the
+# entire data-loading library. Confirmed and fixed live.
+/Data/
 
 # Preserved-but-superseded files, including a 228MB CRSP CSV that would exceed
 # GitHub's hard file-size limit outright. See deprecated/README.md for rationale.

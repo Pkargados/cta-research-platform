@@ -1,24 +1,15 @@
 """
-databento/build_continuous_curve.py — Driver that builds `Data/
-continuous_futures.parquet` from `Data/term_structure.parquet`'s real
-per-contract outright rows.
+Thin driver that builds `Data/continuous_futures.parquet` from
+`Data/term_structure.parquet`'s real per-contract outright rows.
 
-Deliberately thin: all the actual construction logic (contract-chain
-ordering, volume-crossover front-contract assignment, ratio back-adjustment)
-already lives in `src/data/continuous_curve.py` — untouched by the 2026-07-24
-data-loss incident, already fully tested (`tests/test_continuous_curve.py`)
-and already consumed project-wide via `data.continuous_curve.
+All the actual construction logic (contract-chain ordering, volume-crossover
+front-contract assignment with a confirmation-day buffer, ratio back-
+adjustment) lives in `src/data/continuous_curve.py` as importable, tested
+library code, consumed project-wide via `data.continuous_curve.
 load_continuous_raw`/`load_continuous_backadjusted`. This script's only job
-is the one piece that WAS lost: grouping `term_structure.parquet` by asset,
-calling `build_continuous_curve()` per asset, and writing the combined
-result to the expected output path — see WORKFLOW.md Phase 0 for the full
-design rationale (roll rule, ratio- vs. additive-adjustment decision, why two
-series are kept) that `continuous_curve.py` itself already implements.
-
-Rebuilt 2026-07-24 (RECONSTRUCTION_PROGRESS.md Phase 5) after the incident;
-validated by running against the real, already-existing `term_structure.
-parquet` (survived the incident, live in `Data/`) and comparing the result
-directly against the real, already-existing `continuous_futures.parquet`.
+is grouping `term_structure.parquet` by asset, calling
+`build_continuous_curve()` per asset, and writing the combined result to the
+expected output path.
 """
 
 import sys

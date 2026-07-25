@@ -1,17 +1,15 @@
 """
-databento/archive_to_drive.py — Off-machine backup of `Data/databento_raw/`'s
-raw Databento pull (~2.6GB) to Google Drive, via `rclone` (a `drive.file`-
-scoped remote named `gdrive_cta` -> the `CTA_Databento_Raw` folder).
+Off-machine backup of `Data/databento_raw/`'s raw Databento pull (~2.6GB) to
+Google Drive, via `rclone` (a `drive.file`-scoped remote named `gdrive_cta`
+-> the `CTA_Databento_Raw` folder).
 
-Why this exists (WORKFLOW.md Phase 4, "Raw-pull off-machine archive"):
-Databento job outputs expire 30 days after `ts_process_done` — a real,
-ticking deadline per job, not indefinite storage — and this project's own
-folder, despite living under a path named `OneDrive`, was confirmed
-(directly, not assumed) to NOT actually be cloud-synced (`OneDrive.exe` was
-not running). `rclone` was chosen over installing the Google Drive desktop
-client specifically to avoid adding a persistent background sync process;
-the `drive.file` OAuth scope means rclone can only see/manage files IT
-creates, never the whole Drive.
+Why this exists: Databento job outputs expire 30 days after
+`ts_process_done` — a real, ticking deadline per job, not indefinite
+storage — and this project's own local folder is not actually cloud-synced.
+`rclone` was chosen over installing the Google Drive desktop client
+specifically to avoid adding a persistent background sync process; the
+`drive.file` OAuth scope means rclone can only see/manage files IT creates,
+never the whole Drive.
 
 Upload + checksum-verify via `rclone check` (not just "upload succeeded" —
 an upload can complete with the wrong bytes, this catches that), logs every

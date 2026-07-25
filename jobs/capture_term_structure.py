@@ -117,15 +117,14 @@ def pull_contract_history(ticker):
     hist["Date"] = pd.to_datetime(hist["Date"]).dt.tz_localize(None)
     hist = hist[["Date", "Open", "High", "Low", "Close", "Volume"]]
     # Drop incomplete bars - some field(s) left at exactly 0 while others are
-    # populated - rather than write a partially-fabricated print. Found
-    # 2026-07-20 on far-dated, zero-volume contracts (e.g. OJH27.NYB
-    # 2025-09-30): yfinance serves a flat carried-forward quote for long
-    # no-trade stretches (already documented, WORKFLOW.md Phase 4), and
+    # populated - rather than write a partially-fabricated print. Found on
+    # far-dated, zero-volume contracts (e.g. OJH27.NYB 2025-09-30): yfinance
+    # serves a flat carried-forward quote for long no-trade stretches, and
     # occasionally glitches to an exact-zero open/high/low on one isolated day
     # within that stretch instead of repeating the flat value. Reproduced live,
     # on a weekday, ruling out a day-of-week cause. Exact zero, not merely
     # non-positive, mirroring the same fix already validated in
-    # databento/transform_databento.py for the same underlying failure mode -
+    # src/data/databento_transform.py for the same underlying failure mode -
     # a real negative price (e.g. WTI April 2020) never has an exact zero in
     # any field, only a genuinely missing print does.
     return hist[(hist[["Open", "High", "Low", "Close"]] != 0).all(axis=1)]
