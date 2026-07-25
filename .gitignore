@@ -23,6 +23,7 @@ Thumbs.db
 Reports/
 Systematic Commodity Trading Research Report.pdf
 CTA Feature Engineering Primer.pdf
+notebooks/
 
 # Third-party copyrighted academic papers -- not ours to redistribute.
 # The *_implementation_recipe.md notes derived from them are our own work
