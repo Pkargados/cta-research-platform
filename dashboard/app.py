@@ -24,6 +24,8 @@ st.set_page_config(
     initial_sidebar_state="expanded",
 )
 
+import _bootstrap_data  # noqa: E402,F401 -- populates Data/ before any page reads it
+
 PAGES_DIR = Path(__file__).parent / "pages"
 
 pipeline_health = st.Page(
