@@ -1,15 +1,18 @@
 """
-CTA Research Dashboard — entry point.
+CTA Research Dashboard — entry point (public build).
 
 Launch with: streamlit run dashboard/app.py
 
 Navigation-router pattern: this file only defines the sidebar structure via
-st.navigation()/st.Page() and renders nothing itself. Pages 00-04 (Data QA)
-read pre-computed artifacts from Data/dashboard_summary/ — produced by
-jobs/update_dashboard_summary.py (CTA_DashboardSummary, daily 6:25PM). Pages
-05-16 (Strategy Performance, Portfolio Construction, Macro) compute live at
-render time instead — see each page's own module docstring. See CLAUDE.md /
-WORKFLOW.md for the full project context.
+st.navigation()/st.Page() and renders nothing itself. Pipeline Health reads
+pre-computed artifacts from Data/dashboard_summary/ — produced by
+jobs/update_dashboard_summary.py. Every other page computes live at render
+time instead — see each page's own module docstring.
+
+Two pages that display actual Databento-sourced price/curve levels directly
+(Term Structure, Continuous Curve) are intentionally not registered in this
+public build's navigation — everything shown here is a backtest/statistical
+result derived from that data, not the underlying price series itself.
 """
 from pathlib import Path
 
@@ -29,11 +32,6 @@ pipeline_health = st.Page(
     icon=":material/monitor_heart:",
     default=True,
 )
-term_structure = st.Page(
-    PAGES_DIR / "01_term_structure.py",
-    title="Term Structure",
-    icon=":material/show_chart:",
-)
 ohlcv_coverage = st.Page(
     PAGES_DIR / "02_ohlcv_coverage.py",
     title="OHLCV Coverage",
@@ -48,11 +46,6 @@ macro = st.Page(
     PAGES_DIR / "04_macro.py",
     title="Macro",
     icon=":material/public:",
-)
-continuous_curve = st.Page(
-    PAGES_DIR / "05_continuous_curve.py",
-    title="Continuous Curve",
-    icon=":material/timeline:",
 )
 volatility_estimators = st.Page(
     PAGES_DIR / "06_volatility_estimators.py",
@@ -112,7 +105,7 @@ macro_explorer = st.Page(
 
 nav = st.navigation({
     "Monitoring": [pipeline_health],
-    "Coverage": [term_structure, ohlcv_coverage, volatility, macro, continuous_curve, volatility_estimators],
+    "Coverage": [ohlcv_coverage, volatility, macro, volatility_estimators],
     "Strategy Performance": [
         momentum_performance, breakout_performance, crossover_performance,
         short_term_reversal_performance, carry_performance, xs_momentum_performance,
