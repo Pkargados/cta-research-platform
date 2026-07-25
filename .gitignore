@@ -29,9 +29,9 @@ CTA Feature Engineering Primer.pdf
 notebooks/
 
 # Third-party copyrighted academic papers -- not ours to redistribute.
-# The *_implementation_recipe.md notes derived from them are our own work
-# and stay tracked.
-references/*.pdf
+# The papers used, and what each is used for, are cited directly in
+# README.md's References section instead.
+references/
 
 # WisdomTree's own published white paper -- same third-party-copyright reasoning.
 Commodities Strategies 2025.pdf
