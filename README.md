@@ -132,6 +132,29 @@ databento/       # thin entry-point scripts: job submission/retry, raw-archive b
 tests/           # pytest, 230+ tests
 ```
 
+## Testing
+
+In a systematic trading platform, an untested backtest is a liability, not a
+convenience: a single silent lookahead bug or an unhandled NaN can make a
+strategy look profitable when it isn't. The 233-test suite (`tests/`, one
+file per `src/` module) exists to make that class of error structurally
+hard to ship:
+
+- **No-lookahead guarantees** — confirming a signal is genuinely `shift(1)`'d
+  before being used to trade "today," and that a rolling/expanding statistic
+  never sees a future value. This is the single most common way a backtest
+  silently lies, so it's checked directly rather than trusted by convention.
+- **Numerical correctness** — a function's output checked against a manual,
+  hand-computed answer (Sharpe ratio, Yang-Zhang volatility, back-adjustment
+  ratio) on a small constructed input where the right answer is known in
+  advance, not just "does it run without crashing."
+- **Edge-case handling** — sparse trading calendars, all-NaN inputs,
+  degenerate cases (constant price series, single-member sectors, empty date
+  ranges) — the boundary conditions real market data hits that a happy-path
+  test never would.
+- **Regression protection** — once a specific failure mode is fixed, a test
+  locks in that the fix stays fixed.
+
 ## Current state
 
 | Component | Status |
