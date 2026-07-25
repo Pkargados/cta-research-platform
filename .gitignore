@@ -21,6 +21,8 @@ Thumbs.db
 
 # No longer tracked -- kept on disk locally, not version-controlled.
 Reports/
+Systematic Commodity Trading Research Report.pdf
+CTA Feature Engineering Primer.pdf
 
 # Third-party copyrighted academic papers -- not ours to redistribute.
 # The *_implementation_recipe.md notes derived from them are our own work
