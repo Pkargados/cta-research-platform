@@ -97,5 +97,5 @@ if db_manifest_path.exists():
         st.dataframe(db_latest, use_container_width=True, hide_index=True)
         st.caption(
             "One row per asset transformed so far — not all 38, only whichever have had "
-            "`databento/transform_databento.py` run against them. See WORKFLOW.md Phase 4."
+            "`databento/transform_databento.py` run against them."
         )

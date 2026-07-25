@@ -96,7 +96,7 @@ that produced these numbers, not in engineering a cleaner-looking table.
 
 ```
 src/
-  data/          # panels, universe filters, continuous-curve construction, vol estimators, macro loaders
+  data/          # panels, universe filters, the polars-vectorized Databento transform, continuous-curve construction, vol estimators, macro loaders
   signals/       # one module per signal family — pure functions, no optimizer dependency
   backtest/      # engine, performance stats, train/val/test splits, costs, CPCV
   portfolio/     # Book (one signal sleeve), Allocator (combines Books), optimizer, covariance, risk metrics
@@ -104,7 +104,7 @@ src/
 research/        # driver scripts — where new signal/portfolio research is actually run
 dashboard/       # Streamlit QA + strategy-performance + portfolio-construction pages
 jobs/            # scheduled data-refresh entry points (Windows Task Scheduler)
-databento/       # term-structure ingestion, polars transform pipeline, continuous-curve build
+databento/       # thin entry-point scripts: job submission/retry, raw-archive backup, transform/curve-build drivers
 tests/           # pytest, 230+ tests
 ```
 

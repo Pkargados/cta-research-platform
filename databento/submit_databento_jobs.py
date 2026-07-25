@@ -1,14 +1,16 @@
 """
-Submits Databento batch jobs for the full agreed backfill scope (WORKFLOW.md Phase 4):
-all 33 CME-cleared assets (full 2010-06-06->present history) + 5 ICE-cleared softs
-(2024-07-14->present, budget-trimmed window). Two schemas per asset (ohlcv-1d,
-definition) since the transform stage needs both.
+Submits Databento batch jobs for the historical backfill: all 33 CME-cleared
+assets (full 2010-06-06->present history) + 5 ICE-cleared softs
+(2024-07-14->present, a deliberate budget-trimmed window). Two schemas per
+asset (ohlcv-1d, definition) since the transform stage needs both.
 
-This only submits jobs - it does not wait for them or download anything. Job IDs are
-saved to Data/databento_jobs.csv immediately so nothing is lost track of, since
-submission is fast but processing happens server-side and can take a while.
+This only submits jobs - it does not wait for them or download anything. Job
+IDs are saved to Data/databento_jobs.csv immediately so nothing is lost track
+of, since submission is fast but processing happens server-side and can take
+a while.
 
-Run download_databento_jobs.py separately once jobs show state=done.
+Run retry_databento_jobs.py separately once jobs show state=done, to download
+completed jobs and resubmit any that failed or expired.
 """
 
 import sys

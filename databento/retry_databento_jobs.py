@@ -1,33 +1,22 @@
 """
-databento/retry_databento_jobs.py — Checks every job in `Data/
-databento_jobs.csv` (submitted by `submit_databento_jobs.py`) against the
-Databento API, downloads any that are `done` but not yet present in
-`Data/databento_raw/`, and resubmits any that `failed`/`expired`.
-
-Exists to make "did every submitted job actually make it into the raw
-archive" a repeatable, re-runnable check instead of the one-off manual pass
-WORKFLOW.md Phase 4 describes doing once by hand (closing a 32-job gap where
-several assets' jobs were submitted but never downloaded/verified).
+Checks every job in `Data/databento_jobs.csv` (submitted by
+`submit_databento_jobs.py`) against the Databento API, downloads any that
+are `done` but not yet present in `Data/databento_raw/`, and resubmits any
+that `failed`/`expired`. Makes "did every submitted job actually make it
+into the raw archive" a repeatable, re-runnable check rather than a one-off
+manual pass.
 
 Download method — bypasses the server-side zip-bundle endpoint
 (`client.batch.download()`'s default path) entirely, downloading each job's
 individual files instead via `filename_to_download` and rebuilding the zip
 locally. This is not a fallback for a special case — it's the ONLY method
-this script uses, because the zip-bundle endpoint is the exact thing that
-produced two real, confirmed corrupted/truncated archives this project
-already hit (Copper: a `504 gateway timeout` mid-transfer, reproduced twice;
-Nasdaq100: a wrong-content zip predating this discovery) — see
-`databento/DATA_QUALITY_REPORT.md`'s "Asset 11 update" and "Assets 30-31"
-sections for the full incident and recovery record this script generalizes.
+this script uses: the zip-bundle endpoint produced real corrupted/truncated
+archives in practice (a mid-transfer gateway timeout on one asset, a
+wrong-content zip on another — see `databento/DATA_QUALITY_REPORT.md`).
 Every downloaded file is SHA256-verified against Databento's own reported
-hash before being written into the rebuilt zip, matching that same recovery.
+hash before being written into the rebuilt zip.
 
-Requires `DATABENTO_API_KEY` in the environment and network access — not
-runnable in this reconstruction session (no live credentials here); written
-and reviewed to the same standard as `backfill_databento.py`/
-`submit_databento_jobs.py` (also API-dependent, also untouched by the
-2026-07-24 incident, also never executed in a sandboxed session), not
-independently tested end-to-end.
+Requires `DATABENTO_API_KEY` in the environment and network access.
 """
 
 import hashlib
