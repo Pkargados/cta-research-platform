@@ -8,8 +8,7 @@ st.navigation()/st.Page() and renders nothing itself. Pages 00-04 (Data QA)
 read pre-computed artifacts from Data/dashboard_summary/ — produced by
 jobs/update_dashboard_summary.py (CTA_DashboardSummary, daily 6:25PM). Pages
 05-16 (Strategy Performance, Portfolio Construction, Macro) compute live at
-render time instead — see each page's own module docstring. See CLAUDE.md /
-WORKFLOW.md for the full project context.
+render time instead — see each page's own module docstring.
 """
 from pathlib import Path
 
