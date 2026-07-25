@@ -1,0 +1,13 @@
+pandas
+numpy
+polars
+scikit-learn
+statsmodels
+streamlit
+plotly
+matplotlib
+yfinance
+requests
+pandas_market_calendars
+xlrd
+pyarrow
