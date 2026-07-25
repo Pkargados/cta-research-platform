@@ -1,5 +1,7 @@
 # Systematic Commodity & Macro Futures Research Platform
 
+**[Live demo →](https://cta-research-platform-fflp3hcjqbvbss9mpnqymz.streamlit.app/)**
+
 A systematic futures research platform spanning 42 markets across commodities,
 FX, rates, and equity indices — built on a self-collected tick-to-daily data
 pipeline, seven independently-researched signal families, and a covariance-aware
