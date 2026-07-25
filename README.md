@@ -92,6 +92,30 @@ that produced these numbers, not in engineering a cleaner-looking table.
   under two independent statistical tests rather than being taken on faith
   from the first one.
 
+## References
+
+Every signal and methodology choice here is matched directly against its
+source paper, not implemented from memory or a secondary summary:
+
+| Paper | Used for |
+|---|---|
+| Moskowitz, T., Ooi, Y. H., & Pedersen, L. H. (2012), "Time Series Momentum," *Journal of Financial Economics* | Time-series momentum: 12-month lookback, vol-targeted sizing |
+| Lehmann, B. (1990), "Fads, Martingales, and Market Efficiency," *Quarterly Journal of Economics* | Short-term reversal: cross-sectional, sector-demeaned construction |
+| Nagel, S. (2011), "Evaporating Liquidity" | Short-term reversal: VIX-conditioned sizing overlay |
+| Blitz, D., van der Grient, B., & Honarvar, I. (2023), "Reversing the Trend" | Short-term reversal: validates the lookback/sector-demean design choice |
+| Koijen, R., Moskowitz, T., Pedersen, L. H., & Vrugt, E. (2018), "Carry," *Journal of Financial Economics* | Carry and carry-timing signals |
+| Asness, C., Moskowitz, T., & Pedersen, L. H. (2013), "Value and Momentum Everywhere," *Journal of Finance* | Cross-sectional momentum and Value signals (both from this paper) |
+| Fitzgibbons, S., Hecht, J., McQuinn, J., & Serban, A. (2017), "Portfolio Construction Matters," AQR | Mix-vs-integrate comparison for combining Value and cross-sectional momentum |
+| Bailey, D. H., Borwein, J., López de Prado, M., & Zhu, Q. J. (2017), "The Probability of Backtest Overfitting," *Journal of Computational Finance* 20(4) | Combinatorially Symmetric / Purged Cross-Validation (CPCV), used to test whether hyperparameter tuning generalizes across history rather than overfitting one window |
+
+Background reading, informing design but not yet driving a shipped feature:
+
+| Paper | Context |
+|---|---|
+| Kelly, B., Pruitt, S., & Su, Y., "Characteristics are Covariances" (IPCA) | Candidate covariance-estimation approach alongside DCC-GARCH |
+| "Market Regime Identification for a Production CTA Research Platform" | Background for the not-yet-built regime classifier |
+| "Portfolio Construction for CTA and Managed Futures Strategies" | General background for the portfolio-construction layer |
+
 ## Architecture
 
 ```
