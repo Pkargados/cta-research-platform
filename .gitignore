@@ -19,8 +19,8 @@ env/
 .DS_Store
 Thumbs.db
 
-# Personal PII - not for a public repo.
-Reports/Panagiotis_Kargados_Resume.pdf
+# No longer tracked -- kept on disk locally, not version-controlled.
+Reports/
 
 # Third-party copyrighted academic papers -- not ours to redistribute.
 # The *_implementation_recipe.md notes derived from them are our own work
