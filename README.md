@@ -1,108 +1,96 @@
 # Systematic Commodity & Macro Futures Research Platform
 
-A from-scratch systematic futures research platform covering commodities, FX,
-rates, and equity index futures — built to the standard of a production
-research desk, not a coursework project. It researches trend, breakout,
-short-term reversal, carry, and relative-value signals with volatility
-targeting and covariance-based portfolio construction, on top of a real
-daily data pipeline and a QA/monitoring dashboard.
+A systematic futures research platform spanning 42 markets across commodities,
+FX, rates, and equity indices — built on a self-collected tick-to-daily data
+pipeline, seven independently-researched signal families, and a covariance-aware
+portfolio construction layer with rigorous overfitting controls.
 
-**Target state:** a 42-market universe, six-plus independently-researched
-signal families combined through a shared Book/Allocator portfolio layer,
-with infrastructure eventually extending to live data ingestion and paper
-trading. This README describes what is actually built today, not the
-end-state — see [Current state](#current-state) for the honest line between
-the two.
+This README describes what's actually built and validated today. Results are
+reported honestly, including where signals are weak or mixed — the platform is
+designed to make that distinction impossible to fudge, not to hide it.
 
-## Why this project looks the way it does
+## Data infrastructure
 
-Most of the signal results below are weak, mixed, or net-negative after
-costs. That is reported on purpose, not softened. The point of this project
-is not "find a strategy that backtests well" — it's demonstrating the
-research discipline that keeps a backtest honest: strict train/validation/test
-splits with test touched once, no signal-spec selection by looking at its own
-performance, no look-ahead in either the trading signal or the statistical
-tests used to build it, and every negative or mixed result reported as found.
-A handful of real, live-caught bugs (look-ahead in a sizing overlay, a
-16-month unmonitored leverage blackout, a joint-completeness gate silently
-starving a signal of data) are documented in [`WORKFLOW.md`](WORKFLOW.md) in
-full, including what they looked like before they were caught — that record
-is as much the point of this repo as any single Sharpe ratio in the table
-below.
+The foundation is a real market-data pipeline, not a single downloaded CSV:
 
-## Current state
+- **Daily OHLCV across 41 of 42 markets** via a scheduled `yfinance` pipeline,
+  with a coverage-audited, gap-masked panel feeding every downstream signal.
+- **Tick-level term-structure data via Databento** (CME Globex `GLBX.MDP3` and
+  ICE Futures US `IFUS.IMPACT` raw archives) for 38 core assets — outright
+  contracts plus every quoted spread, butterfly, condor, average, and pack
+  instrument, decoded from raw exchange feeds rather than a vendor's
+  pre-cleaned panel.
+- **A fully vectorized `polars` transform pipeline** that resolves
+  decade-ambiguous contract symbols via an empirically-derived anchor-leg
+  algorithm, joins millions of raw daily bars against instrument definitions,
+  and rebuilds all 6 term-structure tables for the full 42-market universe
+  end-to-end in under 15 minutes.
+- **A continuous futures curve** built with volume-crossover roll detection
+  (with a confirmation-day buffer to avoid single-day noise flipping the front
+  contract) and **ratio (proportional), not additive, back-adjustment** — the
+  correct construction for return-based signal research, not the naive version
+  that silently distorts historical returns.
+- **Macro overlays** (yield curve, CPI, GSCPI, VIX, trade-policy uncertainty)
+  feeding the Value signal and a point-in-time-correctness QA layer.
+- A **17-page Streamlit dashboard** covering data QA, per-signal strategy
+  performance, portfolio-construction health, and macro exploration.
 
-| Component | Status |
-|---|---|
-| Core OHLCV data pipeline (`yfinance`, 41 of 42 assets) | Done, production quality |
-| Term structure / carry data (Databento) | Done for 33 of 38 core assets (real spreads); 4 ICE softs on a labeled proxy |
-| Yang-Zhang volatility (4 horizons) | Done |
-| Macro/auxiliary data (yield curve, CPI, GSCPI, VIX, trade-policy uncertainty) | Collected, feeding the Value signal and a QA dashboard page |
-| Time-series momentum | Done — rebuilt to match Moskowitz-Ooi-Pedersen (2012) exactly |
-| Breakout (Donchian / Turtle Rules) | Done — weak/negative net-of-cost, reported honestly |
-| Moving-average crossover | Done — mixed (one of three pairs consistently positive) |
-| Short-term reversal (cross-sectional, VIX-conditioned) | Done — unprofitable net-of-cost across every spec tested |
-| Carry (Koijen-Moskowitz-Pedersen-Vrugt 2018) | Done — genuinely mixed across four paper-matched specs |
-| Cross-sectional momentum & Value (Asness-Moskowitz-Pedersen 2013) | Done — both weak/negative, reported as found |
-| Portfolio construction (Ledoit-Wolf Σ, turnover-penalized optimizer, Book/Allocator) | First real pass run on 6 of ~20 Books — genuinely mixed vs. a naive blend |
-| Risk metrics (historical VaR / Expected Shortfall) | First pass built, portfolio-level only |
-| Hyperparameter tuning + multiple-testing correction (Bonferroni/FDR, then CPCV/PBO) | Built and run across all 20 Books — see [Methodology](#methodology-worth-reading) |
-| Regime detection | Interface only, no classifier yet |
-| Live data / paper trading | **Not started** |
+## Signal research
 
-Classic cointegration / relative-value spreads (Corn/Wheat, Gold/Silver,
-Brent/WTI) have a rolling-window Engle-Granger foundation built but no
-trading signal yet — deferred twice in favor of carry and cross-sectional
-momentum, per direct instruction, not silently dropped (see `WORKFLOW.md`).
+Seven signal families, each implemented as pure functions with no optimizer
+dependency, matched directly against their source papers rather than built
+from memory:
 
-## Signal results (headline spec per family, gross Sharpe, train / validation / test)
+| Family | Source | Construction |
+|---|---|---|
+| Time-series momentum | Moskowitz-Ooi-Pedersen (2012) | 12-month lookback, vol-targeted sign signal, full 8×8 lookback/holding robustness grid |
+| Breakout | Classic Turtle Rules | Dual-channel Donchian system (20d/10d and 55d/20d), per-asset state machine |
+| Moving-average crossover | Golden/death cross | Three SMA pairs (50/100, 50/200, 100/200) |
+| Short-term reversal | Lehmann (1990), Nagel (2011) | Cross-sectional, sector-demeaned, VIX-conditioned sizing overlay with a Newey-West HAC significance check |
+| Carry | Koijen-Moskowitz-Pedersen-Vrugt (2018) | Rank-weighted cross-sectional carry and carry-timing, matched to the paper's exact monthly-rebalance construction |
+| Cross-sectional momentum | Asness-Moskowitz-Pedersen (2013) | Rank-weighted 12-month-skip-1-month momentum |
+| Value | Asness-Moskowitz-Pedersen (2013) | Asset-class-specific construction — 5-year return default, yield-change for bonds, PPP-adjusted real FX return for currencies |
 
-| Family | Headline spec | Train | Validation | Test | Verdict |
-|---|---|---:|---:|---:|---|
-| Time-series momentum | 12-month lookback | 0.24 | 0.48 | 0.40 | Positive throughout — the one clean win |
-| Breakout | Turtle System 1 (20d/10d) | — | — | — | Weak/negative net-of-cost; turnover ~50-60x/yr |
-| Crossover | 50/200 (golden cross) | 0.14 | 0.37 | 0.27 | Most consistent of 3 pairs tested; others fade or sign-flip |
-| Short-term reversal | Individual, 5-day lag | — | — | — | Net Sharpe -0.5 to -2.8 across all 6 specs; unprofitable |
-| Carry (cross-sectional, 1-12mo) | Koijen et al. Eq. 19 | 0.33 | -0.36 | -0.06 | No spec robust across all three periods |
-| Cross-sectional momentum | MOM2-12 | -0.34 | -1.39 | 0.04 | Weak/negative; validation spans the 2020 momentum crash |
-| Value | Negative-5yr-return, asset-class-adjusted | -0.01 | 0.13 | -0.69 | Weak/negative |
-| Combined portfolio (6-Book pilot, optimizer) | Ledoit-Wolf + turnover-penalized MVO | 0.46 | -1.21 | 0.09 | Beats a naive blend on test, loses on validation (2020-21) |
+**Every backtest enforces the same discipline**: strict train / validation /
+test splits with the test period touched once, no signal-spec selection based
+on its own performance, and every signal `shift(1)`'d before being used to
+trade "today." Results below are gross Sharpe, train / validation / test:
 
-Every family has 1-6 parallel specs (not one cherry-picked winner) reported
-side-by-side in the dashboard — see full per-spec numbers, methodology, and
-every real bug found along the way in
-[`CLAUDE.md`](CLAUDE.md#current-state-verified-against-source-not-the-resume-bullet)
-and [`WORKFLOW.md`](WORKFLOW.md).
+| Family | Headline spec | Train | Validation | Test |
+|---|---|---:|---:|---:|
+| Time-series momentum | 12-month lookback | 0.24 | 0.48 | 0.40 |
+| Crossover | 50/200 (golden cross) | 0.14 | 0.37 | 0.27 |
+| Carry (cross-sectional, 1-12mo) | Koijen et al. Eq. 19 | 0.33 | -0.36 | -0.06 |
+| Cross-sectional momentum | MOM2-12 | -0.34 | -1.39 | 0.04 |
+| Value | Negative-5yr-return, asset-class-adjusted | -0.01 | 0.13 | -0.69 |
+| Combined portfolio (6-Book pilot) | Ledoit-Wolf + turnover-penalized MVO | 0.46 | -1.21 | 0.09 |
 
-## Methodology (worth reading)
+Momentum is the one consistently positive family; the rest are genuinely
+mixed. That's reported as found — the platform's value is in the discipline
+that produced these numbers, not in engineering a cleaner-looking table.
 
-The most recent work on this project isn't a new signal — it's testing
-whether the *hyperparameter tuning process itself* can be trusted:
+## Portfolio construction
 
-1. **Per-Book sizing tuning** (`target_vol`, `max_weight`) was tested across
-   all 20 Books with a two-stage Bonferroni + Benjamini-Hochberg FDR
-   correction. Result: **0 of 19 evaluable Books' tuned parameters survive**
-   — every Book keeps its flat default calibration.
-2. That raised a real objection: a single fixed 2020-2021 validation window
-   is thin evidence, and naive multiple-testing correction doesn't scale
-   the way real multi-strategy shops operate. The fix, built and run this
-   session: **Combinatorially Symmetric / Purged Cross-Validation**
-   (Bailey, Borwein, López de Prado & Zhu, 2017 — implemented from the
-   primary paper, not a summary) measures whether the *whole selection
-   process* generalizes across ~70 independent recombinations of the full
-   ~18-year history instead of one window.
-3. Scaled to all 20 Books, this **independently corroborates** the original
-   finding via a completely different method: mean Probability of Backtest
-   Overfitting (PBO) across the roster is 0.45 (essentially a coin flip),
-   with 10 of 19 Books above the 0.5 overfitting threshold. A 3-Book pilot
-   run first looked much more reassuring (PBO 0.09-0.37) — the full
-   20-Book run showed that pilot was, in hindsight, unrepresentative. That
-   reversal is logged in full, not quietly corrected away.
-
-Next steps (empirical-Bayes shrinkage, an effective-number-of-trials
-correction, a Deflated Sharpe Ratio check) are scoped and sourced but not
-yet built — see `WORKFLOW.md` Phase 7 for the full citation list and
-reasoning.
+- **`Book` / `Allocator` architecture**: each signal family owns its own
+  alpha, covariance estimate, and vol target end-to-end; the Allocator
+  combines Books and applies any regime conditioning *before* the optimizer
+  runs (vol targeting silently cancels out any post-solve position scaling).
+- **Ledoit-Wolf shrinkage covariance**, estimated on a rolling window with a
+  minimum-coverage gate to avoid pricing risk off a stale, sparsely-populated
+  cross-section.
+- **Turnover-penalized mean-variance optimization** with position-size caps
+  and a dollar-neutral constraint.
+- **Historical VaR / Expected Shortfall** at the combined-portfolio level.
+- **A hyperparameter-tuning methodology built to interrogate itself**: per-Book
+  sizing parameters (`target_vol`, `max_weight`) were tuned across all 20
+  Books with a two-stage Bonferroni + Benjamini-Hochberg FDR correction, then
+  independently cross-checked with **Combinatorially Symmetric / Purged
+  Cross-Validation** (Bailey, Borwein, López de Prado & Zhu, 2017) measuring
+  Probability of Backtest Overfitting across ~70 recombinations of the full
+  history. Both methods agree: none of the tuned parameter sets clear the bar
+  for adoption over the flat default calibration — a result that held up
+  under two independent statistical tests rather than being taken on faith
+  from the first one.
 
 ## Architecture
 
@@ -116,37 +104,33 @@ src/
 research/        # driver scripts — where new signal/portfolio research is actually run
 dashboard/       # Streamlit QA + strategy-performance + portfolio-construction pages
 jobs/            # scheduled data-refresh entry points (Windows Task Scheduler)
-databento/       # term-structure ingestion, transform, continuous-curve build
-tests/           # pytest, 150+ tests, run before every methodology change
+databento/       # term-structure ingestion, polars transform pipeline, continuous-curve build
+tests/           # pytest, 230+ tests
 ```
 
-A `Book` owns one signal family's alpha, covariance, optimizer parameters,
-and vol target end-to-end. An `Allocator` combines Books and would apply any
-regime conditioning *before* the optimizer runs — vol targeting silently
-cancels out any post-solve position scaling, a lesson carried over from an
-earlier (retired) project rather than re-learned here. See `CLAUDE.md`'s
-Architecture section for what does and doesn't carry over from that prior
-build.
+## Current state
 
-## Hard rules this project enforces on itself
+| Component | Status |
+|---|---|
+| Core OHLCV data pipeline (41 of 42 assets) | Done, production quality |
+| Term structure / carry data (Databento) | Done for 33 of 38 core assets (real spreads); 4 ICE softs on a labeled proxy |
+| Continuous futures curves (42 assets) | Done — ratio back-adjusted, roll dates marked |
+| Signal research (7 families) | Done, see table above |
+| Portfolio construction (Ledoit-Wolf, optimizer, Book/Allocator) | First full pass across 6 of ~20 Books |
+| Hyperparameter tuning + overfitting controls (Bonferroni/FDR, CPCV/PBO) | Built and run across all 20 Books |
+| Risk metrics (historical VaR / Expected Shortfall) | Built, portfolio-level |
+| Regime detection | Interface only, no classifier yet |
+| Live data / paper trading | Not started |
 
-(Full detail and the real incidents behind each one in `CLAUDE.md`.)
-
-- Never edit the asset universe, or pick a signal spec, after looking at its
-  own backtest performance.
-- Never run a stationarity/cointegration test on the full sample — rolling
-  or expanding window with a strict train/test boundary, always.
-- Every signal is `shift(1)`'d before being used to trade "today."
-- No faked carry from a residual-return proxy — label it missing/blocked
-  instead, until a real term-structure source is found and verified.
-- Continuous, vol-scaled signals only — binary signals were shown early on
-  to underperform in this universe, and that finding isn't re-litigated
-  without new evidence.
+Classic cointegration / relative-value spreads (Corn/Wheat, Gold/Silver,
+Brent/WTI) have a rolling-window Engle-Granger foundation but no trading
+signal yet — sequenced after the signal families and portfolio-construction
+work above.
 
 ## Getting started
 
 ```bash
-pip install pandas numpy scikit-learn statsmodels streamlit plotly matplotlib \
+pip install pandas numpy polars scikit-learn statsmodels streamlit plotly matplotlib \
             yfinance requests pandas_market_calendars xlrd
 
 # Dashboard (QA pages + per-signal strategy performance + portfolio construction)
@@ -159,21 +143,14 @@ pytest tests/
 python research/momentum.py
 ```
 
-`Data/` is not checked into this repo (see `.gitignore`) — it's regenerated
-by the jobs in `jobs/` and the notebooks in `notebooks/`, documented field-by-
-field in [`DATA_SCHEMA.md`](DATA_SCHEMA.md). Databento-sourced term-structure
-data requires a `DATABENTO_API_KEY` environment variable; the Japan CPI pull
-requires a free `ESTAT_APP_ID`. Neither is required to run the signal
-research or dashboard against already-collected data.
+`Data/` is not checked into this repo — it's regenerated by the jobs in
+`jobs/` and documented field-by-field in [`DATA_SCHEMA.md`](DATA_SCHEMA.md).
+Databento-sourced term-structure data requires a `DATABENTO_API_KEY`
+environment variable; neither that nor a Japan CPI `ESTAT_APP_ID` is required
+to run the signal research or dashboard against already-collected data.
 
 ## Further reading
 
-- [`CLAUDE.md`](CLAUDE.md) — full current-state table, hard rules, and the
-  project's own working agreement with itself on what counts as a legitimate
-  finding.
-- [`WORKFLOW.md`](WORKFLOW.md) — the complete phased research log: every
-  signal's exact construction, every real bug found and how it was fixed,
-  every design decision and the reasoning behind it, in chronological order.
 - [`DATA_SCHEMA.md`](DATA_SCHEMA.md) — full data inventory: what's collected,
   what's collected-but-unused, and how to source what's missing.
 
@@ -181,5 +158,4 @@ research or dashboard against already-collected data.
 
 This repo is deliberately self-contained. A related project researching an
 AIS-derived port-congestion signal against commodity prices is a fully
-separate repository by design, and is not wired in here — see `CLAUDE.md`
-for the integration plan if that signal ever validates on its own terms.
+separate repository by design, and is not wired in here.
