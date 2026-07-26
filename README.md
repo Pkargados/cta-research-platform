@@ -3,9 +3,10 @@
 **[Live demo →](https://cta-research-platform-fflp3hcjqbvbss9mpnqymz.streamlit.app/)**
 
 A systematic futures research platform spanning 42 markets across commodities,
-FX, rates, and equity indices — built on a self-collected tick-to-daily data
-pipeline, seven independently-researched signal families, and a covariance-aware
-portfolio construction layer with rigorous overfitting controls.
+FX, rates, and equity indices — built on a self-collected, two-source daily
+data pipeline, seven independently-researched signal families, and a
+covariance-aware portfolio construction layer with rigorous overfitting
+controls.
 
 This README describes what's actually built and validated today. Results are
 reported honestly, including where signals are weak or mixed — the platform is
@@ -17,8 +18,9 @@ The foundation is a real market-data pipeline, not a single downloaded CSV:
 
 - **Daily OHLCV across 41 of 42 markets** via a scheduled `yfinance` pipeline,
   with a coverage-audited, gap-masked panel feeding every downstream signal.
-- **Tick-level term-structure data via Databento** (CME Globex `GLBX.MDP3` and
-  ICE Futures US `IFUS.IMPACT` raw archives) for 38 core assets — outright
+- **Daily per-contract term-structure data via Databento** (CME Globex
+  `GLBX.MDP3` and ICE Futures US `IFUS.IMPACT` raw daily archives, `ohlcv-1d`
+  — not tick/trade-level data) for 38 core assets — outright
   contracts plus every quoted spread, butterfly, condor, average, and pack
   instrument, decoded from raw exchange feeds rather than a vendor's
   pre-cleaned panel.

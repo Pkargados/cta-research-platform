@@ -2,8 +2,8 @@
 
 This project's data layer is built the way a production research desk's would
 be, not assembled from a single downloaded CSV: two independent price sources
-chosen for what each is actually good at, tick-level exchange data decoded
-directly from raw archives, a real continuous-futures construction, and a
+chosen for what each is actually good at, per-contract daily exchange data
+decoded directly from raw archives, a real continuous-futures construction, and a
 point-in-time-correct macro layer that a backtest can't accidentally cheat
 against. This document describes what's in `Data/`, how it's produced, and
 why each design decision is what it is.
@@ -32,7 +32,7 @@ covered instead by the term-structure pipeline in Section 2). Universe:
 This panel runs daily on a scheduler, independently of any other job, and is
 the baseline every signal and estimator in this project ultimately touches.
 
-## 2. Tick-level term structure — Databento, decoded from raw exchange archives
+## 2. Daily per-contract term structure — Databento, decoded from raw exchange archives
 
 The core panel above gives one continuous price per asset. Several signal
 families (carry, relative-value spreads, anything that needs to reason about
