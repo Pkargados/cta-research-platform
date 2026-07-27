@@ -42,9 +42,48 @@ DIVERGING = {"Contango": "#2a78d6", "Backwardation": "#e34948", "N/A (single con
 SEQUENTIAL_BLUE = ["#cde2fb", "#9ec5f4", "#6da7ec", "#3987e5", "#256abf", "#184f95", "#0d366b"]
 
 
+_SERIF_TITLE_CSS = """
+<style>
+h1, h2, h3, [data-testid="stMarkdownContainer"] h1,
+[data-testid="stMarkdownContainer"] h2, [data-testid="stMarkdownContainer"] h3 {
+    font-family: Georgia, 'Times New Roman', serif;
+    font-weight: 500;
+}
+</style>
+"""
+
+
 def page_header(title: str, subtitle: str) -> None:
+    st.markdown(_SERIF_TITLE_CSS, unsafe_allow_html=True)
     st.title(title)
     st.markdown(f"*{subtitle}*")
+
+
+def apply_chart_theme(fig, y_unit: str = None):
+    """Shared Plotly aesthetic applied on top of each page's own
+    `update_layout` call (Plotly's update methods merge, not replace, so
+    this only adds these specific properties without disturbing a chart's
+    own title/height/margin choices already set elsewhere):
+
+    - No vertical gridlines; a single faint horizontal zero-line instead of
+      a full grid -- a cleaner look than Plotly's default grid.
+    - Generous margins so charts aren't cramped against the page edge.
+    - If `y_unit` is given, the y-axis unit label is mirrored on the right
+      edge too, so a reader scanning either side of a wide chart can read
+      the scale without eye travel back to one corner.
+    """
+    fig.update_xaxes(showgrid=False, zeroline=False)
+    fig.update_yaxes(
+        showgrid=True, gridcolor="rgba(137,135,129,0.15)", gridwidth=1,
+        zeroline=True, zerolinecolor="rgba(137,135,129,0.35)", zerolinewidth=1,
+    )
+    fig.update_layout(margin=dict(t=40, b=40, l=60, r=60 if y_unit else 40))
+    if y_unit:
+        fig.update_layout(
+            yaxis=dict(title=y_unit),
+            yaxis2=dict(title=y_unit, overlaying="y", side="right", matches="y", showgrid=False),
+        )
+    return fig
 
 
 def render_key_takeaways(bullets: list[str]) -> None:

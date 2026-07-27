@@ -15,7 +15,7 @@ import streamlit as st
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent.parent / "src"))
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent.parent / "research"))
-from lib import page_header, render_key_takeaways, CATEGORICAL
+from lib import page_header, render_key_takeaways, CATEGORICAL, apply_chart_theme
 
 import momentum as mom
 from backtest.splits import TRAIN_END, VALIDATION_END
@@ -105,6 +105,7 @@ fig.update_layout(
     height=420, margin=dict(t=20, b=20),
     paper_bgcolor="rgba(0,0,0,0)", plot_bgcolor="rgba(0,0,0,0)",
 )
+fig = apply_chart_theme(fig)
 st.plotly_chart(fig, use_container_width=True, theme="streamlit")
 st.caption(f"Dashed lines mark the train/validation ({TRAIN_END}) and validation/test ({VALIDATION_END}) boundaries.")
 
@@ -119,6 +120,7 @@ fig2.update_layout(
     height=380, margin=dict(t=20, b=20),
     paper_bgcolor="rgba(0,0,0,0)", plot_bgcolor="rgba(0,0,0,0)",
 )
+fig2 = apply_chart_theme(fig2)
 st.plotly_chart(fig2, use_container_width=True, theme="streamlit")
 st.caption("Moskowitz-Ooi-Pedersen Figure 2 style — before any cross-asset pooling.")
 
@@ -136,6 +138,7 @@ fig3.update_layout(
     height=420, margin=dict(t=20, b=20),
     paper_bgcolor="rgba(0,0,0,0)", plot_bgcolor="rgba(0,0,0,0)",
 )
+fig3 = apply_chart_theme(fig3)
 st.plotly_chart(fig3, use_container_width=True, theme="streamlit")
 st.caption(
     "The paper's own Table 2 grid, reproduced on TRAIN only — descriptive, never "

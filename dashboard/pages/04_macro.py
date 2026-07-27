@@ -13,7 +13,7 @@ import plotly.graph_objects as go
 import streamlit as st
 
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
-from lib import DATA_DIR, page_header, render_key_takeaways, require_summary_files, load_csv, CATEGORICAL
+from lib import DATA_DIR, page_header, render_key_takeaways, require_summary_files, load_csv, CATEGORICAL, apply_chart_theme
 
 page_header("Macro Data", "What's the latest point-in-time-correct macro reading?")
 
@@ -73,6 +73,7 @@ else:
         height=360, margin=dict(t=20, b=20),
         paper_bgcolor="rgba(0,0,0,0)", plot_bgcolor="rgba(0,0,0,0)",
     )
+    fig = apply_chart_theme(fig)
     st.plotly_chart(fig, use_container_width=True, theme="streamlit")
 
 st.divider()

@@ -14,7 +14,7 @@ import streamlit as st
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent.parent / "src"))
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent.parent / "research"))
-from lib import page_header, render_key_takeaways, CATEGORICAL
+from lib import page_header, render_key_takeaways, CATEGORICAL, apply_chart_theme
 
 import vol_estimator_comparison as vec
 
@@ -84,6 +84,7 @@ fig.update_layout(
     paper_bgcolor="rgba(0,0,0,0)", plot_bgcolor="rgba(0,0,0,0)",
     legend=dict(orientation="h", y=1.12),
 )
+fig = apply_chart_theme(fig)
 st.plotly_chart(fig, use_container_width=True, theme="streamlit")
 
 st.caption(

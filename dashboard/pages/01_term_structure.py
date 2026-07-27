@@ -19,6 +19,7 @@ import streamlit as st
 
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 from lib import (
+    apply_chart_theme,
     DATA_DIR, page_header, render_key_takeaways, require_summary_files,
     load_csv, load_parquet, CATEGORICAL, DIVERGING, colored_badge, price_richness,
 )
@@ -81,6 +82,7 @@ if instrument_type == "Outrights":
             height=420, margin=dict(t=20, b=20),
             paper_bgcolor="rgba(0,0,0,0)", plot_bgcolor="rgba(0,0,0,0)",
         )
+        fig = apply_chart_theme(fig)
         st.plotly_chart(fig, use_container_width=True, theme="streamlit")
 
     with st.expander("Contract detail"):
@@ -119,6 +121,7 @@ if instrument_type == "Outrights":
             height=320, margin=dict(t=20, b=20),
             paper_bgcolor="rgba(0,0,0,0)", plot_bgcolor="rgba(0,0,0,0)",
         )
+        fig_shape = apply_chart_theme(fig_shape)
         st.plotly_chart(fig_shape, use_container_width=True, theme="streamlit")
         st.caption(
             "Normalized (% of front close), not raw $ — LiveCattle's price level moved "
@@ -151,6 +154,7 @@ if instrument_type == "Outrights":
                 height=380, margin=dict(t=20, b=20),
                 paper_bgcolor="rgba(0,0,0,0)", plot_bgcolor="rgba(0,0,0,0)",
             )
+            fig_heat = apply_chart_theme(fig_heat)
             st.plotly_chart(fig_heat, use_container_width=True, theme="streamlit")
             st.caption(
                 "Ranked by position along the curve (0 = nearest contract), not absolute "
@@ -178,6 +182,7 @@ if instrument_type == "Outrights":
             height=320, margin=dict(t=20, b=20),
             paper_bgcolor="rgba(0,0,0,0)", plot_bgcolor="rgba(0,0,0,0)",
         )
+        fig_contract = apply_chart_theme(fig_contract)
         st.plotly_chart(fig_contract, use_container_width=True, theme="streamlit")
 
         with st.expander("Volume"):
@@ -191,6 +196,7 @@ if instrument_type == "Outrights":
                 height=220, margin=dict(t=20, b=20),
                 paper_bgcolor="rgba(0,0,0,0)", plot_bgcolor="rgba(0,0,0,0)",
             )
+            fig_vol = apply_chart_theme(fig_vol)
             st.plotly_chart(fig_vol, use_container_width=True, theme="streamlit")
 
     st.divider()
@@ -213,6 +219,7 @@ if instrument_type == "Outrights":
             height=320, margin=dict(t=20, b=20),
             paper_bgcolor="rgba(0,0,0,0)", plot_bgcolor="rgba(0,0,0,0)",
         )
+        fig2 = apply_chart_theme(fig2)
         st.plotly_chart(fig2, use_container_width=True, theme="streamlit")
         st.caption(
             "This will become more meaningful once the Databento historical backfill's "
@@ -315,6 +322,7 @@ else:
         height=380, margin=dict(t=20, b=20),
         paper_bgcolor="rgba(0,0,0,0)", plot_bgcolor="rgba(0,0,0,0)",
     )
+    fig = apply_chart_theme(fig)
     st.plotly_chart(fig, use_container_width=True, theme="streamlit")
 
     with st.expander("Volume"):
@@ -328,6 +336,7 @@ else:
             height=220, margin=dict(t=20, b=20),
             paper_bgcolor="rgba(0,0,0,0)", plot_bgcolor="rgba(0,0,0,0)",
         )
+        fig_vol = apply_chart_theme(fig_vol)
         st.plotly_chart(fig_vol, use_container_width=True, theme="streamlit")
 
     # --- carry + synthetic-vs-real validation (calendar spreads only — needs a
@@ -369,6 +378,7 @@ else:
                 height=300, margin=dict(t=20, b=20),
                 paper_bgcolor="rgba(0,0,0,0)", plot_bgcolor="rgba(0,0,0,0)",
             )
+            fig_carry = apply_chart_theme(fig_carry)
             st.plotly_chart(fig_carry, use_container_width=True, theme="streamlit")
             st.caption(
                 "Carry = (F_near − F_far) / F_near × 365 / days between expiries "
@@ -393,6 +403,7 @@ else:
                 paper_bgcolor="rgba(0,0,0,0)", plot_bgcolor="rgba(0,0,0,0)",
                 legend=dict(orientation="h", y=1.15),
             )
+            fig_synth = apply_chart_theme(fig_synth)
             st.plotly_chart(fig_synth, use_container_width=True, theme="streamlit")
 
             residual = (carry_df["spread_close"] - carry_df["synthetic_spread"]).abs()
