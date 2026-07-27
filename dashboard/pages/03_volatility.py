@@ -9,7 +9,7 @@ import plotly.graph_objects as go
 import streamlit as st
 
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
-from lib import page_header, render_key_takeaways, require_summary_files, load_csv, CATEGORICAL, blue_gradient_style
+from lib import page_header, render_key_takeaways, require_summary_files, load_csv, CATEGORICAL, blue_gradient_style, apply_chart_theme
 
 page_header("Yang-Zhang Volatility", "What's current annualized vol, per asset and horizon?")
 
@@ -37,6 +37,7 @@ fig.update_layout(
     height=400, margin=dict(t=20, b=20),
     paper_bgcolor="rgba(0,0,0,0)", plot_bgcolor="rgba(0,0,0,0)",
 )
+fig = apply_chart_theme(fig)
 st.plotly_chart(fig, use_container_width=True, theme="streamlit")
 
 st.divider()

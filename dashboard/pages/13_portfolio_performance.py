@@ -14,7 +14,7 @@ import streamlit as st
 
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent.parent / "src"))
-from lib import page_header, render_key_takeaways, CATEGORICAL
+from lib import page_header, render_key_takeaways, CATEGORICAL, apply_chart_theme
 
 # research/portfolio.py's own filename collides with the real `portfolio`
 # package under src/ (portfolio.covariance, portfolio.book, ...) - loaded via
@@ -105,6 +105,7 @@ fig.update_layout(
     height=420, margin=dict(t=20, b=20),
     paper_bgcolor="rgba(0,0,0,0)", plot_bgcolor="rgba(0,0,0,0)",
 )
+fig = apply_chart_theme(fig)
 st.plotly_chart(fig, use_container_width=True, theme="streamlit")
 
 st.divider()
@@ -123,6 +124,7 @@ fig2.update_layout(
     paper_bgcolor="rgba(0,0,0,0)", plot_bgcolor="rgba(0,0,0,0)",
     legend=dict(orientation="h", y=1.15),
 )
+fig2 = apply_chart_theme(fig2)
 st.plotly_chart(fig2, use_container_width=True, theme="streamlit")
 
 st.divider()
@@ -138,6 +140,7 @@ fig3.update_layout(
     paper_bgcolor="rgba(0,0,0,0)", plot_bgcolor="rgba(0,0,0,0)",
     legend=dict(orientation="h", y=1.15),
 )
+fig3 = apply_chart_theme(fig3)
 st.plotly_chart(fig3, use_container_width=True, theme="streamlit")
 st.caption(
     "Expanding, not rolling — Book PnL is monthly-periodicity (~120-150 total "

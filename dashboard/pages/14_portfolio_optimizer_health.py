@@ -16,7 +16,7 @@ import streamlit as st
 
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent.parent / "src"))
-from lib import page_header, render_key_takeaways, CATEGORICAL
+from lib import page_header, render_key_takeaways, CATEGORICAL, apply_chart_theme
 
 _spec = importlib.util.spec_from_file_location(
     "research_portfolio_driver", Path(__file__).resolve().parent.parent.parent / "research" / "portfolio.py",
@@ -91,6 +91,7 @@ fig.update_layout(
     height=380, margin=dict(t=20, b=20),
     paper_bgcolor="rgba(0,0,0,0)", plot_bgcolor="rgba(0,0,0,0)",
 )
+fig = apply_chart_theme(fig)
 st.plotly_chart(fig, use_container_width=True, theme="streamlit")
 st.caption(
     "Ledoit-Wolf shrinkage (`portfolio/covariance.py`) pulls the estimate toward "
@@ -117,6 +118,7 @@ fig2.update_layout(
     paper_bgcolor="rgba(0,0,0,0)", plot_bgcolor="rgba(0,0,0,0)",
     legend=dict(orientation="h", y=1.12),
 )
+fig2 = apply_chart_theme(fig2)
 st.plotly_chart(fig2, use_container_width=True, theme="streamlit")
 st.caption(
     "Scale = (target_vol / realized_vol)^2, power-scaled, bounded by "

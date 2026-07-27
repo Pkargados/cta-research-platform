@@ -17,7 +17,7 @@ import streamlit as st
 
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent.parent / "src"))
-from lib import DATA_DIR, page_header, render_key_takeaways, CATEGORICAL
+from lib import DATA_DIR, page_header, render_key_takeaways, CATEGORICAL, apply_chart_theme
 
 from data.macro import load_yield_curve, load_cpi
 
@@ -133,6 +133,7 @@ else:
         paper_bgcolor="rgba(0,0,0,0)", plot_bgcolor="rgba(0,0,0,0)",
         legend=dict(orientation="h", y=1.12),
     )
+    fig = apply_chart_theme(fig)
     st.plotly_chart(fig, use_container_width=True, theme="streamlit")
 
     st.caption(f"{start_date} to {end_date} — {len(view)} rows, {view.notna().any(axis=1).sum()} with at least one real value.")

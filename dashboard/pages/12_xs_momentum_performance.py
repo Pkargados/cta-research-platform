@@ -13,7 +13,7 @@ import streamlit as st
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent.parent / "src"))
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent.parent / "research"))
-from lib import page_header, render_key_takeaways, CATEGORICAL
+from lib import page_header, render_key_takeaways, CATEGORICAL, apply_chart_theme
 
 import xs_momentum as xsm_research
 from signals.xs_momentum import xs_momentum_signal
@@ -74,6 +74,7 @@ fig.update_layout(
     height=420, margin=dict(t=20, b=20),
     paper_bgcolor="rgba(0,0,0,0)", plot_bgcolor="rgba(0,0,0,0)",
 )
+fig = apply_chart_theme(fig)
 st.plotly_chart(fig, use_container_width=True, theme="streamlit")
 
 st.divider()
@@ -88,6 +89,7 @@ fig2.update_layout(
     height=380, margin=dict(t=20, b=20),
     paper_bgcolor="rgba(0,0,0,0)", plot_bgcolor="rgba(0,0,0,0)",
 )
+fig2 = apply_chart_theme(fig2)
 st.plotly_chart(fig2, use_container_width=True, theme="streamlit")
 st.caption(
     "Copper reads NaN here (IndustrialMetals has exactly one member — no peer "
