@@ -13,6 +13,11 @@ Two pages that display actual Databento-sourced price/curve levels directly
 (Term Structure, Continuous Curve) are intentionally not registered in this
 public build's navigation — everything shown here is a backtest/statistical
 result derived from that data, not the underlying price series itself.
+
+Overview (page 17) is the default landing page — a static, no-computation
+project narrative, since a visitor's first click shouldn't land on an
+internal QA page (Pipeline Health) or wait on a live signal/portfolio
+computation.
 """
 from pathlib import Path
 
@@ -28,11 +33,16 @@ import _bootstrap_data  # noqa: E402,F401 -- populates Data/ before any page rea
 
 PAGES_DIR = Path(__file__).parent / "pages"
 
+overview = st.Page(
+    PAGES_DIR / "17_overview.py",
+    title="Overview",
+    icon=":material/rocket_launch:",
+    default=True,
+)
 pipeline_health = st.Page(
     PAGES_DIR / "00_pipeline_health.py",
     title="Pipeline Health",
     icon=":material/monitor_heart:",
-    default=True,
 )
 ohlcv_coverage = st.Page(
     PAGES_DIR / "02_ohlcv_coverage.py",
@@ -106,6 +116,7 @@ macro_explorer = st.Page(
 )
 
 nav = st.navigation({
+    "Overview": [overview],
     "Monitoring": [pipeline_health],
     "Coverage": [ohlcv_coverage, volatility, macro, volatility_estimators],
     "Strategy Performance": [
