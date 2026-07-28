@@ -5,7 +5,6 @@ cap-bind frequency — reusing the SAME 6-Book construction as page 13, no new
 backtest logic. `Book.run()`'s per-date diagnostic series (turnover_series,
 scale_series, cap_bind_series) drive this page directly.
 """
-import importlib.util
 import sys
 from pathlib import Path
 
@@ -17,41 +16,24 @@ import streamlit as st
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent.parent / "src"))
 from lib import page_header, render_key_takeaways, CATEGORICAL, apply_chart_theme
-
-_spec = importlib.util.spec_from_file_location(
-    "research_portfolio_driver", Path(__file__).resolve().parent.parent.parent / "research" / "portfolio.py",
-)
-pf_research = importlib.util.module_from_spec(_spec)
-_spec.loader.exec_module(pf_research)
+from _portfolio_pipeline import load_and_run as _pipeline_load_and_run
 
 page_header("Optimizer Health", "Covariance conditioning, vol-target scale pinning, and cap-bind frequency — machinery diagnostics, not a signal result.")
 
+_returns, _book_results, _books_by_name, _combined_pnl = _pipeline_load_and_run()
 
-@st.cache_data(ttl=1200)
-def _load_and_run():
-    adj, raw, included, sectors = pf_research.load_and_prepare_data()
-    close = adj["close"]
-    returns = close.pct_change(fill_method=None)
-    vol = pf_research.build_vol(raw)
-    alphas = pf_research.build_six_alphas(adj, raw, included, sectors, vol)
-
-    results = {}
-    for name, alpha_df in alphas.items():
-        book = pf_research.build_book(name, alpha_df, returns)
-        run_result = book.run(returns)
-        cond_numbers = pd.Series(
-            {date: float(np.linalg.cond(cov.values)) for date, cov in book.cov_dict.items()}
-        ).sort_index()
-        results[name] = {
-            "sharpe": run_result.get("sharpe"), "n_cap_bind": run_result.get("n_cap_bind"),
-            "avg_scale": run_result.get("avg_scale"), "n_rebalance_dates_valid": run_result.get("n_rebalance_dates_valid"),
-            "turnover_series": run_result.get("turnover_series"), "scale_series": run_result.get("scale_series"),
-            "cap_bind_series": run_result.get("cap_bind_series"), "cond_numbers": cond_numbers,
-        }
-    return results
-
-
-results = _load_and_run()
+results = {}
+for name, run_result in _book_results.items():
+    book = _books_by_name[name]
+    cond_numbers = pd.Series(
+        {date: float(np.linalg.cond(cov.values)) for date, cov in book.cov_dict.items()}
+    ).sort_index()
+    results[name] = {
+        "sharpe": run_result.get("sharpe"), "n_cap_bind": run_result.get("n_cap_bind"),
+        "avg_scale": run_result.get("avg_scale"), "n_rebalance_dates_valid": run_result.get("n_rebalance_dates_valid"),
+        "turnover_series": run_result.get("turnover_series"), "scale_series": run_result.get("scale_series"),
+        "cap_bind_series": run_result.get("cap_bind_series"), "cond_numbers": cond_numbers,
+    }
 book_names = list(results.keys())
 
 cap_bind_rate = {
