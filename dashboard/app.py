@@ -16,10 +16,12 @@ internal QA page (Pipeline Health) or wait on a live signal/portfolio
 computation.
 
 Note: the public build (main branch) additionally excludes Term Structure
-(01) and Continuous Curve (05) from its navigation — those two display raw
-Databento-sourced price/curve levels directly, a licensing distinction that
-doesn't apply to this local build. See dashboard/app.py on main for that
-version's own docstring.
+(01), Continuous Curve (05), and Pipeline Health from its navigation — the
+first two display raw Databento-sourced price/curve levels directly (a
+licensing distinction that doesn't apply to this local build); Pipeline
+Health is maintainer-only operational monitoring, not evidence of research
+quality for a visitor. See dashboard/app.py on main for that version's own
+docstring.
 """
 from pathlib import Path
 
