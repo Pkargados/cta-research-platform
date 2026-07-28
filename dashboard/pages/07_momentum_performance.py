@@ -58,10 +58,7 @@ def _per_asset_headline(_winner, _asset):
     cost_bps = liquidity_tiered_cost_bps(volume, window_start=mom.ADV_WINDOW_START)
     gross = backtest_signal_per_asset(signal, returns, frequency="monthly", holding_months=1)[_asset]
     net = backtest_signal_per_asset(signal, returns, frequency="monthly", holding_months=1, cost_bps=cost_bps)[_asset]
-    train, validation, test = train_validation_test_split(gross)
-    stats = {"train": performance_stats(train), "validation": performance_stats(validation), "test": performance_stats(test)}
-    _, _, net_test = train_validation_test_split(net)
-    return stats, gross, net, simple_sharpe(net_test)
+    return gross, net
 
 
 @st.cache_data(ttl=1200)
@@ -79,16 +76,17 @@ def _per_asset_grid(_winner, _asset):
     return pd.DataFrame(rows).pivot(index="lookback_months", columns="holding_months", values="train_sharpe")
 
 
-stats, asset_gross, asset_net, net_test_sharpe = _per_asset_headline(winner, asset)
-gross_test_sharpe = stats["test"]["Sharpe"]
+asset_gross, asset_net = _per_asset_headline(winner, asset)
+_, _, gross_test = train_validation_test_split(asset_gross)
+_, _, net_test = train_validation_test_split(asset_net)
+gross_test_sharpe, net_test_sharpe = simple_sharpe(gross_test), simple_sharpe(net_test)
 
 render_key_takeaways([
     f"Vol estimator: **{winner}** wins on TRAIN evidence (pooled, project-level "
     f"choice, Sharpe {vol_comparison.loc[winner, 'train_sharpe']:.3f} vs. "
     f"{vol_comparison.loc[[i for i in vol_comparison.index if i != winner][0], 'train_sharpe']:.3f}) — "
     "picked before looking at validation/test (CLAUDE.md Rule 1/2).",
-    f"**{asset}**'s own train/validation/test Sharpe: **{stats['train']['Sharpe']:.3f} / "
-    f"{stats['validation']['Sharpe']:.3f} / {stats['test']['Sharpe']:.3f}**.",
+    f"**{asset}**'s own gross test Sharpe: **{gross_test_sharpe:.3f}**.",
     f"**{asset}**'s net-of-cost test Sharpe: **{net_test_sharpe:.3f}** vs. gross "
     f"**{gross_test_sharpe:.3f}** (liquidity-tiered ADV cost assumption — a labeled "
     "placeholder, not a measured cost).",
@@ -97,8 +95,10 @@ render_key_takeaways([
 st.divider()
 
 gross_net = st.radio("View", ["Gross", "Net of cost"], horizontal=True)
+plot_returns = asset_net if gross_net == "Net of cost" else asset_gross
+stats = {k: performance_stats(v) for k, v in zip(("train", "validation", "test"), train_validation_test_split(plot_returns))}
 
-st.subheader(f"Tearsheet — {asset}")
+st.subheader(f"Tearsheet — {asset}, {gross_net}")
 c1, c2, c3 = st.columns(3)
 periods = [("train", "Train"), ("validation", "Validation"), ("test", "Test")]
 for col, (key, label) in zip([c1, c2, c3], periods):
@@ -106,8 +106,12 @@ for col, (key, label) in zip([c1, c2, c3], periods):
     col.metric(f"{label} Sharpe", f"{s['Sharpe']:.3f}" if s['Sharpe'] == s['Sharpe'] else "N/A")
     col.caption(f"Ann Ret {s['Ann Return']:.2%} · Ann Vol {s['Ann Vol']:.2%} · Max DD {s['Max DD']:.2%}")
 
+st.dataframe(
+    pd.DataFrame({label: stats[key] for key, label in periods}).T.round(4),
+    use_container_width=True,
+)
+
 st.subheader(f"Equity Curve — {asset}")
-plot_returns = asset_net if gross_net == "Net of cost" else asset_gross
 equity = (1 + plot_returns.dropna()).cumprod()
 fig = go.Figure()
 fig.add_trace(go.Scatter(x=equity.index, y=equity.values, mode="lines", line=dict(color=CATEGORICAL[0], width=1.5)))

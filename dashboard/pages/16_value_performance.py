@@ -10,6 +10,7 @@ stat are one selected asset's own return stream
 import sys
 from pathlib import Path
 
+import pandas as pd
 import plotly.graph_objects as go
 import streamlit as st
 
@@ -80,6 +81,11 @@ for col, key, label in zip([c1, c2, c3], ("train", "validation", "test"), ("Trai
     s = stats_by_period[key]
     col.metric(f"{label} Sharpe", f"{s['Sharpe']:.3f}" if s['Sharpe'] == s['Sharpe'] else "N/A")
     col.caption(f"Ann Ret {s['Ann Return']:.2%} · Max DD {s['Max DD']:.2%}")
+
+st.dataframe(
+    pd.DataFrame({"Train": stats_by_period["train"], "Validation": stats_by_period["validation"], "Test": stats_by_period["test"]}).T.round(4),
+    use_container_width=True,
+)
 
 equity = (1 + asset_returns.dropna()).cumprod()
 fig = go.Figure()
