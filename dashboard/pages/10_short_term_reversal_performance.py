@@ -4,6 +4,18 @@ Computes live at render time, reusing `research/short_term_reversal.py`
 directly. Tier (individual/sector) and sizing (simple/VIX-adjusted) toggles
 on top of the usual lag/gross-net ones, reflecting this signal's two-tier,
 cross-sectional structure and Nagel (2011)'s VIX-conditioning finding.
+
+Per-asset view, not a pooled book: the tearsheet, equity curve, and all-specs
+summary are one selected asset's own return stream. The signal itself is
+still cross-sectional (an asset's score depends on its sector peers each
+day) — slicing to one asset's own resulting position/return afterward is
+still well-defined (same `backtest.engine.backtest_signal_per_asset`
+mechanism this page already used for its per-asset Sharpe chart before this
+change), but a single asset's Sharpe from a cross-sectional strategy is a
+much noisier, lower-conviction number than the pooled cross-sectional
+result — flagged below, not hidden. The VIX-conditioning HAC regression
+stays pooled/tier-level: it's a property of the reversal PORTFOLIO's return
+(Nagel's own construction), not of any one asset.
 """
 import sys
 from pathlib import Path
@@ -20,9 +32,10 @@ from lib import page_header, render_key_takeaways, CATEGORICAL, apply_chart_them
 import short_term_reversal as str_research
 from signals.short_term_reversal import build_all_reversal_signals, LAGS
 from signals.vix_overlay import vix_size_multiplier, apply_size_multiplier
-from backtest.engine import backtest_signal, backtest_signal_per_asset, normalized_positions
+from backtest.engine import backtest_signal_per_asset, normalized_positions
 from backtest.splits import TRAIN_END, VALIDATION_END, train_validation_test_split
 from backtest.performance import performance_stats, simple_sharpe
+from backtest.costs import liquidity_tiered_cost_bps, turnover
 
 page_header("Short-Term Reversal", "Lehmann (1990) mechanics, sector-scoped peer groups, Nagel (2011) VIX-conditional sizing.")
 
@@ -33,7 +46,6 @@ def _load():
     close = adj["close"]
     returns = close.pct_change(fill_method=None)
     vol = str_research.build_vol(raw)
-    from backtest.costs import liquidity_tiered_cost_bps
     cost_bps = liquidity_tiered_cost_bps(adj["volume"], window_start=str_research.ADV_WINDOW_START)
     vix = str_research.load_vix()
     return close, returns, vol, sectors, cost_bps, vix
@@ -41,36 +53,42 @@ def _load():
 
 close, returns, vol, sectors, cost_bps, vix = _load()
 
+asset = st.selectbox("Asset", sorted(close.columns.tolist()))
+
 
 @st.cache_data(ttl=1200)
-def _all_specs_summary():
+def _all_specs_summary(_asset):
     signals = build_all_reversal_signals(close, vol, sectors, lags=LAGS)
     rows = []
     for name, signal in signals.items():
-        turnover = str_research.annualized_turnover(signal)
-        gross = backtest_signal(signal, returns, frequency="daily")
-        net = backtest_signal(signal, returns, frequency="daily", cost_bps=cost_bps)
+        turn = str_research.annualized_turnover(signal)
+        gross = backtest_signal_per_asset(signal, returns, frequency="daily")[_asset]
+        net = backtest_signal_per_asset(signal, returns, frequency="daily", cost_bps=cost_bps)[_asset]
         g_train, g_val, g_test = train_validation_test_split(gross)
         n_train, n_val, n_test = train_validation_test_split(net)
         rows.append({
-            "Spec": name, "Annualized turnover": turnover,
+            "Spec": name, "Annualized turnover (pooled book)": turn,
             "Train (gross)": simple_sharpe(g_train), "Validation (gross)": simple_sharpe(g_val), "Test (gross)": simple_sharpe(g_test),
             "Train (net)": simple_sharpe(n_train), "Validation (net)": simple_sharpe(n_val), "Test (net)": simple_sharpe(n_test),
         })
     return pd.DataFrame(rows).set_index("Spec")
 
 
-summary = _all_specs_summary()
+summary = _all_specs_summary(asset)
 render_key_takeaways([
     "The first genuinely CROSS-SECTIONAL signal in this project — bets against "
-    "an asset's return relative to its own SECTOR peer group, not the full universe.",
-    f"Turnover is extremely high ({summary['Annualized turnover'].min():.0f}-"
-    f"{summary['Annualized turnover'].max():.0f}x annualized) and net-of-cost Sharpe "
-    "is deeply negative across every one of the 6 specs — the first outright-"
-    "unprofitable signal family in this project.",
-    "VIX-conditioning (Nagel): sector-tier is HAC-significant despite a tiny R², "
-    "individual-tier is not — see the regression panel below. Doesn't rescue "
-    "net-of-cost profitability either way.",
+    "an asset's return relative to its own SECTOR peer group, not the full universe. "
+    f"**{asset}**'s own numbers below still reflect that — its position each day "
+    "depends on its sector peers — but a single asset's Sharpe from a "
+    "cross-sectional strategy is a much noisier number than the pooled result.",
+    f"Pooled-book finding, for context: turnover is extremely high "
+    f"({summary['Annualized turnover (pooled book)'].min():.0f}-"
+    f"{summary['Annualized turnover (pooled book)'].max():.0f}x annualized, pooled book) "
+    "and net-of-cost Sharpe is deeply negative across every one of the 6 specs — "
+    "the first outright-unprofitable signal family in this project.",
+    "VIX-conditioning (Nagel), pooled/tier-level regression: sector-tier is "
+    "HAC-significant despite a tiny R², individual-tier is not — see the regression "
+    "panel below. Doesn't rescue net-of-cost profitability either way.",
 ])
 
 st.divider()
@@ -85,7 +103,7 @@ with c3:
 with c4:
     gross_net = st.radio("View", ["Gross", "Net of cost"], horizontal=True)
 
-st.subheader("All 6 Specs — Gross/Net Sharpe (daily)")
+st.subheader(f"All 6 Specs — {asset} Gross/Net Sharpe (daily)")
 st.dataframe(summary.round(3), use_container_width=True)
 
 st.divider()
@@ -94,29 +112,26 @@ spec_name = f"{tier}_{lag}d"
 signals = build_all_reversal_signals(close, vol, sectors, lags=LAGS)
 signal = signals[spec_name]
 
-positions = normalized_positions(signal, "daily")
+positions = signal.shift(1)
 if sizing == "VIX-adjusted":
     multiplier = vix_size_multiplier(vix)
     positions = apply_size_multiplier(positions, multiplier)
 
-raw_strategy_returns = (positions * returns).sum(axis=1).dropna()
+strategy_returns_all = positions * returns
 if gross_net == "Net of cost":
-    from backtest.costs import transaction_cost_drag
-    cost_bps_aligned = cost_bps.reindex(positions.columns).fillna(0.0)
-    strategy_returns = raw_strategy_returns - transaction_cost_drag(positions, cost_bps_aligned).reindex(raw_strategy_returns.index).fillna(0.0)
-else:
-    strategy_returns = raw_strategy_returns
+    strategy_returns_all = strategy_returns_all - turnover(positions) * (cost_bps / 10_000)
+asset_returns = strategy_returns_all[asset].dropna()
 
-stats_by_period = {k: performance_stats(v) for k, v in zip(("train", "validation", "test"), train_validation_test_split(strategy_returns))}
+stats_by_period = {k: performance_stats(v) for k, v in zip(("train", "validation", "test"), train_validation_test_split(asset_returns))}
 
-st.subheader(f"Tearsheet — {spec_name}, {sizing} sizing, {gross_net}")
+st.subheader(f"Tearsheet — {asset}, {spec_name}, {sizing} sizing, {gross_net}")
 c1, c2, c3 = st.columns(3)
 for col, key, label in zip([c1, c2, c3], ("train", "validation", "test"), ("Train", "Validation", "Test")):
     s = stats_by_period[key]
     col.metric(f"{label} Sharpe", f"{s['Sharpe']:.3f}" if s['Sharpe'] == s['Sharpe'] else "N/A")
     col.caption(f"Ann Ret {s['Ann Return']:.2%} · Max DD {s['Max DD']:.2%}")
 
-equity = (1 + strategy_returns).cumprod()
+equity = (1 + asset_returns).cumprod()
 fig = go.Figure()
 fig.add_trace(go.Scatter(x=equity.index, y=equity.values, mode="lines", line=dict(color=CATEGORICAL[3], width=1.5)))
 fig.add_vline(x=TRAIN_END, line_dash="dash", line_color="#898781")
@@ -131,23 +146,13 @@ st.plotly_chart(fig, use_container_width=True, theme="streamlit")
 
 st.divider()
 
-st.subheader("Per-Asset Sharpe (full sample, gross)")
-per_asset_returns = backtest_signal_per_asset(signal, returns, frequency="daily")
-per_asset_sharpe = per_asset_returns.apply(simple_sharpe).sort_values(ascending=False)
-fig2 = go.Figure()
-fig2.add_trace(go.Bar(x=per_asset_sharpe.index, y=per_asset_sharpe.values, marker_color=CATEGORICAL[3]))
-fig2.update_layout(
-    xaxis_title=None, yaxis_title="Sharpe",
-    height=380, margin=dict(t=20, b=20),
-    paper_bgcolor="rgba(0,0,0,0)", plot_bgcolor="rgba(0,0,0,0)",
+st.subheader("VIX-Conditioning Regression (Newey-West HAC, maxlags=20) — pooled, tier-level")
+st.caption(
+    "Not asset-specific — Nagel's regression tests whether the reversal PORTFOLIO's "
+    "return is VIX-predictable, a property of the pooled book, not of any one asset. "
+    "Daily strategy return regressed on the PRIOR day's VIX level — see "
+    "research/short_term_reversal.py's own docstring for why lagged, not contemporaneous."
 )
-fig2 = apply_chart_theme(fig2)
-st.plotly_chart(fig2, use_container_width=True, theme="streamlit")
-
-st.divider()
-
-st.subheader("VIX-Conditioning Regression (Newey-West HAC, maxlags=20)")
-st.caption("Daily strategy return regressed on the PRIOR day's VIX level — see research/short_term_reversal.py's own docstring for why lagged, not contemporaneous.")
 reg_cols = st.columns(2)
 for col, reg_tier in zip(reg_cols, ("individual", "sector")):
     reg_signal = signals[f"{reg_tier}_{lag}d"]
