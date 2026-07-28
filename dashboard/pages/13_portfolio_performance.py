@@ -15,49 +15,21 @@ import streamlit as st
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent.parent / "src"))
 from lib import page_header, render_key_takeaways, CATEGORICAL, apply_chart_theme
+from _portfolio_pipeline import load_and_run as _pipeline_load_and_run
 
-# research/portfolio.py's own filename collides with the real `portfolio`
-# package under src/ (portfolio.covariance, portfolio.book, ...) - loaded via
-# an explicit module spec under a non-colliding name instead of sys.path, so
-# both "the driver script" and "the src/portfolio package it imports" resolve
-# correctly at the same time.
+from portfolio.risk_metrics import historical_var, expected_shortfall, expanding_var_and_es
+from backtest.splits import TRAIN_END, VALIDATION_END, train_validation_test_split
+from backtest.performance import simple_sharpe
+
 _spec = importlib.util.spec_from_file_location(
     "research_portfolio_driver", Path(__file__).resolve().parent.parent.parent / "research" / "portfolio.py",
 )
 pf_research = importlib.util.module_from_spec(_spec)
 _spec.loader.exec_module(pf_research)
 
-from portfolio.allocator import Allocator
-from portfolio.risk_metrics import historical_var, expected_shortfall, expanding_var_and_es
-from backtest.splits import TRAIN_END, VALIDATION_END, train_validation_test_split
-from backtest.performance import simple_sharpe
-
 page_header("Portfolio Construction", "One representative Book per signal family, combined via the Optimizer/Allocator.")
 
-
-@st.cache_data(ttl=1200)
-def _load_and_run():
-    adj, raw, included, sectors = pf_research.load_and_prepare_data()
-    close = adj["close"]
-    returns = close.pct_change(fill_method=None)
-    vol = pf_research.build_vol(raw)
-    alphas = pf_research.build_six_alphas(adj, raw, included, sectors, vol)
-
-    book_results = {}
-    books = []
-    for name, alpha_df in alphas.items():
-        book = pf_research.build_book(name, alpha_df, returns)
-        result = book.run(returns)
-        book_results[name] = result
-        books.append(book)
-
-    allocator = Allocator(books)
-    combined = allocator.run(returns)
-    combined_pnl = combined["pnl"]
-    return returns, book_results, combined_pnl
-
-
-returns, book_results, combined_pnl = _load_and_run()
+returns, book_results, _books_by_name, combined_pnl = _pipeline_load_and_run()
 
 per_book_summary = pd.DataFrame({
     name: {"Sharpe": res.get("sharpe"), "Max DD": res.get("max_dd"), "Turnover": res.get("turnover"),
