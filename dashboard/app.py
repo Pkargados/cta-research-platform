@@ -9,6 +9,17 @@ read pre-computed artifacts from Data/dashboard_summary/ — produced by
 jobs/update_dashboard_summary.py (CTA_DashboardSummary, daily 6:25PM). Pages
 05-16 (Strategy Performance, Portfolio Construction, Macro) compute live at
 render time instead — see each page's own module docstring.
+
+Overview (page 17) is the default landing page — a static, no-computation
+project narrative, since a visitor's first click shouldn't land on an
+internal QA page (Pipeline Health) or wait on a live signal/portfolio
+computation.
+
+Note: the public build (main branch) additionally excludes Term Structure
+(01) and Continuous Curve (05) from its navigation — those two display raw
+Databento-sourced price/curve levels directly, a licensing distinction that
+doesn't apply to this local build. See dashboard/app.py on main for that
+version's own docstring.
 """
 from pathlib import Path
 
@@ -22,11 +33,16 @@ st.set_page_config(
 
 PAGES_DIR = Path(__file__).parent / "pages"
 
+overview = st.Page(
+    PAGES_DIR / "17_overview.py",
+    title="Overview",
+    icon=":material/rocket_launch:",
+    default=True,
+)
 pipeline_health = st.Page(
     PAGES_DIR / "00_pipeline_health.py",
     title="Pipeline Health",
     icon=":material/monitor_heart:",
-    default=True,
 )
 term_structure = st.Page(
     PAGES_DIR / "01_term_structure.py",
@@ -110,6 +126,7 @@ macro_explorer = st.Page(
 )
 
 nav = st.navigation({
+    "Overview": [overview],
     "Monitoring": [pipeline_health],
     "Coverage": [term_structure, ohlcv_coverage, volatility, macro, continuous_curve, volatility_estimators],
     "Strategy Performance": [
