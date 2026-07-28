@@ -16,12 +16,14 @@ internal QA page (Pipeline Health) or wait on a live signal/portfolio
 computation.
 
 Note: the public build (main branch) additionally excludes Term Structure
-(01), Continuous Curve (05), and Pipeline Health from its navigation — the
-first two display raw Databento-sourced price/curve levels directly (a
-licensing distinction that doesn't apply to this local build); Pipeline
-Health is maintainer-only operational monitoring, not evidence of research
-quality for a visitor. See dashboard/app.py on main for that version's own
-docstring.
+(01), Continuous Curve (05), Pipeline Health, OHLCV Coverage, Volatility,
+and Macro from its navigation — the first two display raw Databento-sourced
+price/curve levels directly (a licensing distinction that doesn't apply to
+this local build); the other four are all "is the pipeline healthy right
+now" status/monitoring pages, maintainer-only, not evidence of research
+quality for a visitor. Volatility Estimators stays on main — it's a real
+methodology comparison, not a status check. See dashboard/app.py on main
+for that version's own docstring.
 """
 from pathlib import Path
 
