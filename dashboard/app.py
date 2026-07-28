@@ -4,20 +4,22 @@ CTA Research Dashboard — entry point (public build).
 Launch with: streamlit run dashboard/app.py
 
 Navigation-router pattern: this file only defines the sidebar structure via
-st.navigation()/st.Page() and renders nothing itself. Pipeline Health reads
-pre-computed artifacts from Data/dashboard_summary/ — produced by
-jobs/update_dashboard_summary.py. Every other page computes live at render
-time instead — see each page's own module docstring.
+st.navigation()/st.Page() and renders nothing itself. Every page computes
+live at render time — see each page's own module docstring.
 
-Two pages that display actual Databento-sourced price/curve levels directly
-(Term Structure, Continuous Curve) are intentionally not registered in this
-public build's navigation — everything shown here is a backtest/statistical
-result derived from that data, not the underlying price series itself.
+Three pages are intentionally not registered in this public build's
+navigation (files still exist, just unrouted here — see them on master):
+Term Structure and Continuous Curve display actual Databento-sourced price/
+curve levels directly, a licensing distinction (everything else here is a
+backtest/statistical result derived from that data, not the raw series
+itself); Pipeline Health is "did last night's scheduled jobs run" —
+operational monitoring for the maintainer, not evidence of research quality
+for a visitor evaluating the work, and a stale/failed job status would read
+as "something's broken" with no context to a stranger.
 
 Overview (page 17) is the default landing page — a static, no-computation
-project narrative, since a visitor's first click shouldn't land on an
-internal QA page (Pipeline Health) or wait on a live signal/portfolio
-computation.
+project narrative, since a visitor's first click shouldn't land on a live
+signal/portfolio computation.
 """
 from pathlib import Path
 
@@ -38,11 +40,6 @@ overview = st.Page(
     title="Overview",
     icon=":material/rocket_launch:",
     default=True,
-)
-pipeline_health = st.Page(
-    PAGES_DIR / "00_pipeline_health.py",
-    title="Pipeline Health",
-    icon=":material/monitor_heart:",
 )
 ohlcv_coverage = st.Page(
     PAGES_DIR / "02_ohlcv_coverage.py",
@@ -117,7 +114,6 @@ macro_explorer = st.Page(
 
 nav = st.navigation({
     "Overview": [overview],
-    "Monitoring": [pipeline_health],
     "Coverage": [ohlcv_coverage, volatility, macro, volatility_estimators],
     "Strategy Performance": [
         momentum_performance, breakout_performance, crossover_performance,
