@@ -7,15 +7,19 @@ Navigation-router pattern: this file only defines the sidebar structure via
 st.navigation()/st.Page() and renders nothing itself. Every page computes
 live at render time — see each page's own module docstring.
 
-Three pages are intentionally not registered in this public build's
+Six pages are intentionally not registered in this public build's
 navigation (files still exist, just unrouted here — see them on master):
 Term Structure and Continuous Curve display actual Databento-sourced price/
 curve levels directly, a licensing distinction (everything else here is a
 backtest/statistical result derived from that data, not the raw series
-itself); Pipeline Health is "did last night's scheduled jobs run" —
-operational monitoring for the maintainer, not evidence of research quality
-for a visitor evaluating the work, and a stale/failed job status would read
-as "something's broken" with no context to a stranger.
+itself); Pipeline Health, OHLCV Coverage, Volatility, and Macro are all
+"is the pipeline healthy right now" status/monitoring pages — useful for
+the maintainer, not evidence of research quality for a visitor, and a
+stale/missing-data status would read as "something's broken" with no
+context to a stranger. Volatility Estimators is the one QA-adjacent page
+kept: it's a real methodology comparison (Yang-Zhang vs. EWMA, evaluated by
+forecast accuracy, not backtest performance), not a status check — see its
+own module docstring.
 
 Overview (page 17) is the default landing page — a static, no-computation
 project narrative, since a visitor's first click shouldn't land on a live
@@ -40,21 +44,6 @@ overview = st.Page(
     title="Overview",
     icon=":material/rocket_launch:",
     default=True,
-)
-ohlcv_coverage = st.Page(
-    PAGES_DIR / "02_ohlcv_coverage.py",
-    title="OHLCV Coverage",
-    icon=":material/candlestick_chart:",
-)
-volatility = st.Page(
-    PAGES_DIR / "03_volatility.py",
-    title="Volatility",
-    icon=":material/ssid_chart:",
-)
-macro = st.Page(
-    PAGES_DIR / "04_macro.py",
-    title="Macro",
-    icon=":material/public:",
 )
 volatility_estimators = st.Page(
     PAGES_DIR / "06_volatility_estimators.py",
@@ -114,7 +103,7 @@ macro_explorer = st.Page(
 
 nav = st.navigation({
     "Overview": [overview],
-    "Coverage": [ohlcv_coverage, volatility, macro, volatility_estimators],
+    "Methodology": [volatility_estimators],
     "Strategy Performance": [
         momentum_performance, breakout_performance, crossover_performance,
         short_term_reversal_performance, carry_performance, xs_momentum_performance,
