@@ -25,14 +25,37 @@ import streamlit as st
 DATA_DIR = Path(__file__).resolve().parent.parent / "Data"
 DATA_REPO = "github.com/Pkargados/cta-research-platform-data.git"
 
-# Cheap, specific marker rather than checking every expected file --
-# term_structure.parquet is read by nearly every strategy-performance page,
-# so its presence is a solid proxy for "the sync already happened."
-_MARKER = DATA_DIR / "term_structure.parquet"
+# The full set of top-level Data/ entries the deployed code actually reads
+# (enumerated directly from every `DATA_DIR / "..."` reference across
+# src/, research/, dashboard/, jobs/) -- not just one marker file. A single-
+# file check (previously just term_structure.parquet) can be fooled by a
+# stale or partially-synced Data/ left over from an earlier container state:
+# that's what actually happened on 2026-07-28 -- continuous_futures.parquet
+# was missing while term_structure.parquet was present, so the old check
+# skipped re-syncing and every strategy-performance page 404'd on a file
+# that was never there. Checking the full set makes a partial sync
+# self-healing (a reboot re-clones) instead of silently wrong.
+_REQUIRED_FILES = [
+    "Yield_Curve_6M_to_30Y.csv", "close.parquet", "continuous_futures.parquet",
+    "cpi_level_index.csv", "dashboard_summary", "dashboard_summary_manifest.csv",
+    "databento_transform_manifest.csv", "gscpi_data.xls", "high.parquet", "low.parquet",
+    "macro_data_manifest.csv", "metadata.csv", "open.parquet",
+    "overnight_fed_fund_rates_US.xlsx", "term_structure.parquet",
+    "term_structure_averages.parquet", "term_structure_butterflies.parquet",
+    "term_structure_condors.parquet", "term_structure_manifest.csv",
+    "term_structure_packs.parquet", "term_structure_spreads.parquet",
+    "trade_policy_uncertainty_US.csv", "vix_data.csv", "volatility_manifest.csv",
+    "yang_zhang_features.parquet",
+]
+
+
+def _missing_files() -> list[str]:
+    return [f for f in _REQUIRED_FILES if not (DATA_DIR / f).exists()]
 
 
 def ensure_data():
-    if _MARKER.exists():
+    missing = _missing_files()
+    if not missing:
         return
 
     token = st.secrets.get("GITHUB_DATA_REPO_TOKEN")
@@ -66,6 +89,16 @@ def ensure_data():
                 shutil.copytree(item, dest, dirs_exist_ok=True)
             else:
                 shutil.copy2(item, dest)
+
+    still_missing = _missing_files()
+    if still_missing:
+        st.error(
+            "Data sync completed but the private data repo (cta-research-"
+            "platform-data) is still missing: " + ", ".join(still_missing) +
+            ". Push a current copy of these files to that repo's root, then "
+            "reboot this app."
+        )
+        st.stop()
 
 
 ensure_data()
