@@ -13,6 +13,16 @@ Personal Access Token scoped to read-only "Contents" access on the private
 cta-research-platform-data repo only. Never logged, never rendered, never
 readable by a visitor — it only ever touches this process's own `git clone`
 call, run server-side before the app serves any page.
+
+Debugging note (2026-07-28): clicking "Reboot app" in Streamlit Community
+Cloud's dashboard does NOT immediately produce a fresh container — the
+platform is wake-on-request, so the first hit after a reboot can still land
+on the container mid-cycle and show a stale error (this module's own
+FileNotFoundError, seen twice, both times because of exactly this). The fix
+is to actually navigate into the app (click it in the left sidebar) rather
+than trust the "Reboot app" click alone or the logs panel's "Updated app!"
+message — that real visit is what forces the full cold start (clone this
+repo, install deps, run this module's ensure_data()) to actually finish.
 """
 
 import shutil
