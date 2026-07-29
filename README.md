@@ -36,7 +36,7 @@ The foundation is a real market-data pipeline, not a single downloaded CSV:
   that silently distorts historical returns.
 - **Macro overlays** (yield curve, CPI, GSCPI, VIX, trade-policy uncertainty)
   feeding the Value signal and a point-in-time-correctness QA layer.
-- A **17-page Streamlit dashboard** covering data QA, per-signal strategy
+- An **18-page Streamlit dashboard** covering data QA, per-signal strategy
   performance, portfolio-construction health, and macro exploration.
 
 ## Signal research
@@ -67,11 +67,35 @@ trade "today." Results below are gross Sharpe, train / validation / test:
 | Carry (cross-sectional, 1-12mo) | Koijen et al. Eq. 19 | 0.33 | -0.36 | -0.06 |
 | Cross-sectional momentum | MOM2-12 | -0.34 | -1.39 | 0.04 |
 | Value | Negative-5yr-return, asset-class-adjusted | -0.01 | 0.13 | -0.69 |
-| Combined portfolio (6-Book pilot) | Ledoit-Wolf + turnover-penalized MVO | 0.46 | -1.21 | 0.09 |
 
 Momentum is the one consistently positive family; the rest are genuinely
 mixed. That's reported as found — the platform's value is in the discipline
 that produced these numbers, not in engineering a cleaner-looking table.
+
+## Single Strategy Portfolios
+
+The 42-market research universe is now a defined two-Book investment mandate
+— directional trend and curve-based carry, chosen because trend is the one
+consistently-positive family above and carry has genuine (if mixed) evidence,
+while relative-value stays research-only until its own trading signal exists
+(only a rolling-window cointegration foundation today, no z-score entry/exit
+built yet).
+
+Each Book's construction was chosen by a small, validation-selected bake-off
+across economically distinct alternatives — not a numerical hyperparameter
+grid, and not the highest-Sharpe pick either:
+
+| Book | Winning construction | Why | Train | Validation | Test |
+|---|---|---|---:|---:|---:|
+| Trend | TSMOM alone | Beat every blend tried (equal-weight, tilted, IC-weighted, risk-parity, a confirmation-filter gate, and a conviction-deadband construction) — TSMOM and the 50/200 crossover are too correlated (0.65 full-sample, DCC-GARCH) to diversify each other, so blending only diluted the stronger signal | 0.32 | 0.59 | 1.36 |
+| Carry | Carry-timing (zero reference) | Best of the carry family's 4 existing specs on validation, though still negative there — consistent with carry's well-documented COVID-era underperformance | -0.37 | -0.94 | 0.29 |
+| Combined (equal Book risk) | — | — | -0.14 | -0.51 | 0.87 |
+
+Both Books use GJR-GARCH (not EWMA) to forecast their own realized-PnL
+volatility for vol-targeting — tested head-to-head and adopted after GARCH
+cut forecast loss (QLIKE) roughly 60-70% versus EWMA, the same asymmetric-
+shock-response advantage GARCH already showed at the asset-price level, now
+confirmed at the portfolio level too rather than assumed to transfer.
 
 ## Portfolio construction
 
@@ -84,10 +108,21 @@ that produced these numbers, not in engineering a cleaner-looking table.
   cross-section.
 - **Turnover-penalized mean-variance optimization** with position-size caps
   and a dollar-neutral constraint.
+- **GJR-GARCH vol-targeting** (opt-in per Book, `vol_estimator="garch"`) —
+  refits every 20 rebalance periods on realized PnL through the previous
+  period only, filters forward with fixed parameters between refits, falling
+  back to a plain EWMA recursion during warmup or on any fit failure. The
+  EWMA default is preserved for every other Book in the codebase — this is
+  additive, not a silent behavior change to already-published results.
 - **Historical VaR / Expected Shortfall** at the combined-portfolio level.
-- **A hyperparameter-tuning methodology built to interrogate itself**: per-Book
-  sizing parameters (`target_vol`, `max_weight`) were tuned across all 20
-  Books with a two-stage Bonferroni + Benjamini-Hochberg FDR correction, then
+- **Two distinct selection disciplines, not one**: choosing *which
+  construction* to trade (the Single Strategy Portfolios bake-off above) is a
+  small number of economically distinct alternatives selected on validation —
+  a different statistical situation from tuning *sizing parameters* of an
+  already-chosen construction across many Books, which is where the
+  Bonferroni/FDR + CPCV machinery below applies. Per-Book sizing parameters
+  (`target_vol`, `max_weight`) were tuned across all 20 Books with a
+  two-stage Bonferroni + Benjamini-Hochberg FDR correction, then
   independently cross-checked with **Combinatorially Symmetric / Purged
   Cross-Validation** (Bailey, Borwein, López de Prado & Zhu, 2017) measuring
   Probability of Backtest Overfitting across ~70 recombinations of the full
@@ -133,14 +168,14 @@ research/        # driver scripts — where new signal/portfolio research is act
 dashboard/       # Streamlit QA + strategy-performance + portfolio-construction pages
 jobs/            # scheduled data-refresh entry points (Windows Task Scheduler)
 databento/       # thin entry-point scripts: job submission/retry, raw-archive backup, transform/curve-build drivers
-tests/           # pytest, 230+ tests
+tests/           # pytest, 246+ tests
 ```
 
 ## Testing
 
 In a systematic trading platform, an untested backtest is a liability, not a
 convenience: a single silent lookahead bug or an unhandled NaN can make a
-strategy look profitable when it isn't. The 234-test suite (`tests/`, one
+strategy look profitable when it isn't. The 246-test suite (`tests/`, one
 file per `src/` module) exists to make that class of error structurally
 hard to ship:
 
@@ -167,8 +202,11 @@ hard to ship:
 | Term structure / carry data (Databento) | Done for 33 of 38 core assets (real spreads); 4 ICE softs on a labeled proxy |
 | Continuous futures curves (42 assets) | Done — ratio back-adjusted, roll dates marked |
 | Signal research (7 families) | Done, see table above |
-| Portfolio construction (Ledoit-Wolf, optimizer, Book/Allocator) | First full pass across 6 of ~20 Books |
-| Hyperparameter tuning + overfitting controls (Bonferroni/FDR, CPCV/PBO) | Built and run across all 20 Books |
+| Portfolio mandate | Decided — two-Book: Trend + Carry, Relative Value deferred until its own trading signal exists |
+| Single Strategy Portfolios (Trend Book, Carry Book) | Built and validation-selected, see table above |
+| Portfolio construction (Ledoit-Wolf, optimizer, Book/Allocator) | Machinery built; first full pass was a 6-Book pilot, since superseded by the two selected Single Strategy Portfolios |
+| Book-level vol-targeting (GJR-GARCH vs. EWMA) | Tested and decided — GARCH adopted for the two selected Books, opt-in, other Books unchanged |
+| Hyperparameter tuning + overfitting controls (Bonferroni/FDR, CPCV/PBO) | Built and run across all 20 Books (sizing-parameter tuning only — construction selection uses a separate, smaller bake-off, see above) |
 | Risk metrics (historical VaR / Expected Shortfall) | Built, portfolio-level |
 | Regime detection | Interface only, no classifier yet |
 | Live data / paper trading | Not started |
