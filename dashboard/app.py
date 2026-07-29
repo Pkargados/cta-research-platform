@@ -16,10 +16,13 @@ itself); Pipeline Health, OHLCV Coverage, Volatility, and Macro are all
 "is the pipeline healthy right now" status/monitoring pages — useful for
 the maintainer, not evidence of research quality for a visitor, and a
 stale/missing-data status would read as "something's broken" with no
-context to a stranger. Volatility Estimators is the one QA-adjacent page
-kept: it's a real methodology comparison (Yang-Zhang vs. EWMA, evaluated by
-forecast accuracy, not backtest performance), not a status check — see its
-own module docstring.
+context to a stranger. Volatility Estimators and Optimizer Health are kept,
+but live in the "Technical Appendix" group at the end of the nav rather
+than up front — both validate machinery/methodology (does the vol estimator
+forecast well, is the optimizer behaving sanely) rather than reporting a
+result, so they're placed after the actual research (Strategy Performance,
+Portfolio Construction) for whoever wants to verify the rigor behind it,
+not as the first thing a visitor sees.
 
 Overview (page 17) is the default landing page — a static, no-computation
 project narrative, since a visitor's first click shouldn't land on a live
@@ -103,14 +106,14 @@ macro_explorer = st.Page(
 
 nav = st.navigation({
     "Overview": [overview],
-    "Estimators": [volatility_estimators],
     "Strategy Performance": [
         momentum_performance, breakout_performance, crossover_performance,
         short_term_reversal_performance, carry_performance, xs_momentum_performance,
         value_performance,
     ],
-    "Portfolio Construction": [portfolio_performance, portfolio_optimizer_health],
+    "Portfolio Construction": [portfolio_performance],
     "Macro Data": [macro_explorer],
+    "Technical Appendix": [volatility_estimators, portfolio_optimizer_health],
 })
 
 nav.run()
