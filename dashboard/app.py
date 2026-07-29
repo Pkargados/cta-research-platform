@@ -133,14 +133,14 @@ nav = st.navigation({
     "Overview": [overview],
     "Monitoring": [pipeline_health],
     "Coverage": [term_structure, ohlcv_coverage, volatility, macro, continuous_curve],
-    "Estimators": [volatility_estimators],
     "Strategy Performance": [
         momentum_performance, breakout_performance, crossover_performance,
         short_term_reversal_performance, carry_performance, xs_momentum_performance,
         value_performance,
     ],
-    "Portfolio Construction": [portfolio_performance, portfolio_optimizer_health],
+    "Portfolio Construction": [portfolio_performance],
     "Macro Data": [macro_explorer],
+    "Technical Appendix": [volatility_estimators, portfolio_optimizer_health],
 })
 
 nav.run()
