@@ -154,7 +154,7 @@ of bug gets designed out rather than discovered after the fact.
 
 A dedicated scheduled job computes pipeline health, coverage-vs-real-
 exchange-calendar gaps, term-structure curve snapshots, and macro freshness,
-writing small pre-computed artifacts that a 17-page Streamlit dashboard
+writing small pre-computed artifacts that an 18-page Streamlit dashboard
 reads and renders — the dashboard does no computation of its own for this
 layer, so what it shows is exactly what the monitoring job measured.
 
