@@ -21,9 +21,11 @@ and Macro from its navigation — the first two display raw Databento-sourced
 price/curve levels directly (a licensing distinction that doesn't apply to
 this local build); the other four are all "is the pipeline healthy right
 now" status/monitoring pages, maintainer-only, not evidence of research
-quality for a visitor. Volatility Estimators stays on main — it's a real
-methodology comparison, not a status check. See dashboard/app.py on main
-for that version's own docstring.
+quality for a visitor. Volatility Estimators and Optimizer Health stay on
+main, in a "Technical Appendix" group at the end of the nav — both validate
+machinery/methodology rather than reporting a result, so they're placed
+after the actual research rather than up front. See dashboard/app.py on
+main for that version's own docstring.
 """
 from pathlib import Path
 
