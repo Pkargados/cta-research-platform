@@ -140,7 +140,7 @@ tests/           # pytest, 230+ tests
 
 In a systematic trading platform, an untested backtest is a liability, not a
 convenience: a single silent lookahead bug or an unhandled NaN can make a
-strategy look profitable when it isn't. The 233-test suite (`tests/`, one
+strategy look profitable when it isn't. The 234-test suite (`tests/`, one
 file per `src/` module) exists to make that class of error structurally
 hard to ship:
 
