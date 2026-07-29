@@ -82,6 +82,44 @@ def vol_targeted_sign_signal(raw_signal: pd.DataFrame, vol: pd.DataFrame, target
     return target_vol * np.sign(raw_signal) / vol
 
 
+def vol_targeted_sign_signal_with_deadband(
+    raw_signal: pd.DataFrame, vol: pd.DataFrame, target_vol: float = 1.0,
+    deadband_quantile: float = 0.5, deadband_window: int = 252, min_periods: int = 60,
+) -> pd.DataFrame:
+    """Same construction as `vol_targeted_sign_signal`, but flattens (returns 0,
+    not just a smaller position) whenever `|raw_signal|` falls below its own
+    trailing rolling quantile — a genuine no-conviction, no-position state,
+    unlike `sign()`'s always-in-the-market rule (`raw_signal` is essentially
+    never exactly zero, so the plain version is always long or short every
+    asset with data).
+
+    The threshold is per-asset, computed from each asset's OWN trailing
+    `|raw_signal|` history — assets have different natural signal scales
+    (a 12-month Coffee return and a 12-month EURUSD return aren't comparable in
+    absolute terms), so a single cross-asset magnitude cutoff wouldn't be
+    meaningful. `shift(1)`'d so today's threshold only uses information knowable
+    before today (point-in-time-safe, same discipline as every other rolling
+    estimate in this project).
+
+    `deadband_quantile=0.5` (the default) flattens roughly half the time by
+    construction — a real "not always trading" behavior, not a marginal filter.
+    `deadband_quantile=0.0` reduces to the always-in `vol_targeted_sign_signal`
+    exactly (nothing is ever below its own historical minimum).
+
+    A genuinely missing `raw_signal` stays NaN in the output (not silently
+    flattened to 0) — flattening only applies when real data exists but falls
+    below the conviction threshold, or during the warmup window before
+    `min_periods` trailing observations exist (no threshold to compare against
+    yet, so nothing trades rather than trading on an unvalidated one).
+    """
+    abs_signal = raw_signal.abs()
+    threshold = abs_signal.rolling(deadband_window, min_periods=min_periods).quantile(deadband_quantile).shift(1)
+    active = abs_signal >= threshold
+    base = target_vol * np.sign(raw_signal) / vol
+    flattened = base.where(active, other=0.0)
+    return flattened.where(raw_signal.notna(), other=float("nan"))
+
+
 def cross_sectional_rank(scores: pd.DataFrame, sectors: dict, min_group_size: int = 2) -> pd.DataFrame:
     """Sector-scoped rank-demean: `rank(S_i) - mean_rank` within each sector, per
     date — the construction shared algebraically by carry (Koijen-Moskowitz-
