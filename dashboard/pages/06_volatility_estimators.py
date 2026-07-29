@@ -1,9 +1,12 @@
 """Page 06 — Volatility Estimators.
 
 Computes live at render time, reusing `research/vol_estimator_comparison.py`
-(project-wide, signal-agnostic QLIKE/MSE forecast-accuracy comparison) and
-`research/momentum.py`'s own vol-estimator builders directly — no duplicated
-data-prep logic, no precomputed dashboard_summary/ artifact.
+(project-wide, signal-agnostic QLIKE/MSE forecast-accuracy comparison)
+directly — no duplicated data-prep logic, no precomputed dashboard_summary/
+artifact. GJR-GARCH is read from a precomputed cache
+(Data/research/garch_volatility.parquet, `data.garch_volatility`'s
+load_or_compute_garch()) — a real MLE fit per asset per refit window, far
+too slow to compute live, so this page only ever reads it, never fits.
 
 First page in the "Estimators" nav group — a methodology comparison, not a
 status check, evaluated by forecast accuracy rather than backtest
@@ -27,13 +30,13 @@ from lib import page_header, render_key_takeaways, CATEGORICAL, apply_chart_them
 
 import vol_estimator_comparison as vec
 
-page_header("Volatility Estimators", "Yang-Zhang vs. EWMA — which forecasts realized variance better?")
+page_header("Volatility Estimators", "Yang-Zhang vs. EWMA vs. GJR-GARCH — which forecasts realized variance better?")
 
 
 @st.cache_data(ttl=1200)
 def _load():
     adj, raw = vec.load_and_prepare_data()
-    vol_estimators, adj_returns = vec.build_vol_estimators(adj, raw)
+    vol_estimators, adj_returns = vec.build_vol_estimators_with_garch(adj, raw)
     return vol_estimators, adj_returns
 
 
@@ -58,32 +61,39 @@ vol_estimators, adj_returns = _load()
 comparison = _comparison_table()
 per_asset, win_rates, sector_tables, est_names = _per_asset_and_derived()
 
-winner_21d = comparison[comparison["horizon_days"] == 21].sort_values("mean_qlike").iloc[0]
-win_rate_21d = win_rates[21]
-win_rate_63d = win_rates[63]
-avg_winner_21d = winner_21d["vol_estimator"]
-rate_winner_21d = win_rate_21d["win_pct"].idxmax()
-avg_winner_63d = comparison[comparison["horizon_days"] == 63].sort_values("mean_qlike").iloc[0]["vol_estimator"]
-rate_winner_63d = win_rate_63d["win_pct"].idxmax()
+# Per-horizon winners, both by pooled average and by win-rate -- the two
+# genuinely disagree at some horizons here (a finding, see below), so
+# neither is computed once and assumed to hold across all of them.
+avg_winner = {}
+rate_winner = {}
+for h in vec.HORIZONS:
+    avg_winner[h] = comparison[comparison["horizon_days"] == h].sort_values("mean_qlike").iloc[0]["vol_estimator"]
+    rate_winner[h] = win_rates[h]["win_pct"].idxmax()
 
 takeaways = [
-    f"**{avg_winner_21d}** wins on pooled-average QLIKE at every horizon tested — "
-    "a signal-agnostic, forecast-only comparison, not picked by which one produces "
-    "a higher backtest Sharpe (that would be circular — see the methodology section below).",
-    f"At 21d, the win-rate agrees with the average: **{rate_winner_21d}** wins on "
-    f"**{win_rate_21d.loc[rate_winner_21d, 'win_pct']:.0%}** of assets individually, not just on average.",
+    "Three estimators compared by forecast accuracy (QLIKE, Patton 2011), not by "
+    "which one produces a higher backtest Sharpe — that would be circular, since "
+    "this estimator is shared across three signal families (see Methodology below).",
 ]
-if avg_winner_63d != rate_winner_63d or win_rate_63d["win_pct"].max() < 0.6:
-    takeaways.append(
-        f"At 63d, the average and the win-rate **diverge in strength**: the pooled average "
-        f"still favors {avg_winner_63d}, but the per-asset win-rate is nearly a coin flip "
-        f"({win_rate_63d.loc[rate_winner_63d, 'win_pct']:.0%} vs. "
-        f"{1 - win_rate_63d.loc[rate_winner_63d, 'win_pct']:.0%}) — the average isn't as "
-        "robust a summary at this horizon as it looks on its own."
-    )
+for h in vec.HORIZONS:
+    avg_qlike = comparison[(comparison["horizon_days"] == h) & (comparison["vol_estimator"] == avg_winner[h])]["mean_qlike"].iloc[0]
+    rate_pct = win_rates[h].loc[rate_winner[h], "win_pct"]
+    if avg_winner[h] == rate_winner[h]:
+        takeaways.append(
+            f"At {h}d, the average and the win-rate **agree**: **{avg_winner[h]}** wins "
+            f"pooled-average QLIKE ({avg_qlike:.4f}) and wins **{rate_pct:.0%}** of assets individually."
+        )
+    else:
+        takeaways.append(
+            f"At {h}d, the average and the win-rate **disagree**: the pooled average "
+            f"favors {avg_winner[h]} ({avg_qlike:.4f}), but **{rate_winner[h]}** actually "
+            f"wins **{rate_pct:.0%}** of assets individually — the average isn't the "
+            "robust summary it looks like on its own."
+        )
 takeaways.append(
-    "This is the estimator momentum/breakout/crossover's own vol-targeted position "
-    "sizing actually uses (Yang-Zhang, confirmed by this comparison)."
+    "GJR-GARCH is genuinely competitive, not a token third entry: ties or beats "
+    "Yang-Zhang on the pooled average and wins the individual-asset win-rate "
+    "decisively at every horizon tested."
 )
 render_key_takeaways(takeaways)
 
@@ -97,6 +107,14 @@ st.markdown(
     "**EWMA** is an exponentially-weighted moving variance of past close-to-close "
     "returns only — simpler, needs less data, but blind to intraday range and "
     "overnight moves.\n\n"
+    "**GJR-GARCH(1,1,1)** is a parametric model fit via maximum likelihood, with "
+    "asymmetric response to positive vs. negative return shocks (the \"leverage "
+    "effect\") — a well-regarded standard in the vol-forecasting literature. Refit "
+    "every 20 trading days on an expanding window, with the conditional-variance "
+    "path extended daily between refits using fixed parameters (standard practice — "
+    "the recursion itself updates day to day; only the parameters need periodic "
+    "re-estimation). Far more expensive to compute than the other two, so it's "
+    "precomputed and cached, never fit live on this page.\n\n"
     "**Why compared by forecast accuracy, not backtest Sharpe:** picking a vol "
     "estimator by which one produces a better SIGNAL Sharpe is economically "
     "incoherent — volatility is a property of the asset's price history, not of "
@@ -105,6 +123,14 @@ st.markdown(
     "each estimator directly against subsequently realized variance — the estimator "
     "either predicts the future accurately or it doesn't, independent of any one "
     "strategy's own quirks."
+)
+st.caption(
+    "A real numerical bug was found and fixed while adding GJR-GARCH: its fixed "
+    "internal input scaling left one asset (US_2Y) far outside the fitting "
+    "library's own documented stable range, producing a degenerate near-zero "
+    "volatility estimate in several windows. Diagnosed from the library's own "
+    "convergence warnings and fixed with a per-asset dynamic rescale — see "
+    "`data/garch_volatility.py`'s own module docstring for the full account."
 )
 
 st.divider()
@@ -173,10 +199,12 @@ else:
 
 yz = vol_estimators["yang_zhang"][asset].dropna()
 ewma = vol_estimators["ewma"][asset].dropna()
+garch = vol_estimators["gjr_garch"][asset].dropna()
 
 fig = go.Figure()
 fig.add_trace(go.Scatter(x=yz.index, y=yz.values, mode="lines", name="Yang-Zhang", line=dict(color=CATEGORICAL[0], width=1.3)))
 fig.add_trace(go.Scatter(x=ewma.index, y=ewma.values, mode="lines", name="EWMA", line=dict(color=CATEGORICAL[1], width=1.3)))
+fig.add_trace(go.Scatter(x=garch.index, y=garch.values, mode="lines", name="GJR-GARCH", line=dict(color=CATEGORICAL[4], width=1.3)))
 fig.update_layout(
     xaxis_title="Date", yaxis_title="Annualized volatility",
     height=420, margin=dict(t=20, b=20),
@@ -187,8 +215,8 @@ fig = apply_chart_theme(fig)
 st.plotly_chart(fig, use_container_width=True, theme="streamlit")
 
 st.caption(
-    "Yang-Zhang is computed off the RAW OHLC curve (roll-masked); EWMA off the "
-    "back-adjusted curve's own daily returns — different inputs by design, see "
+    "Yang-Zhang is computed off the RAW OHLC curve (roll-masked); EWMA and GJR-GARCH "
+    "off the back-adjusted curve's own daily returns — different inputs by design, see "
     "`data/volatility.py`'s module docstring for why the back-adjusted curve "
     "isn't safe for a log-OHLC estimator in this project's older energy segments."
 )
