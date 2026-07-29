@@ -1,6 +1,6 @@
 import pandas as pd
 
-from data.universe import get_liquid_universe
+from data.universe import get_liquid_universe, ICE_SOFTS_DATA_BLOCKED
 
 
 def _volume_panel():
@@ -45,3 +45,15 @@ def test_get_liquid_universe_returns_disjoint_complete_partition():
     included, excluded = get_liquid_universe(volume, window_start="2024-06-01", threshold=1000)
     assert set(included).isdisjoint(set(excluded))
     assert set(included) | set(excluded) == set(volume.columns)
+
+
+def test_get_liquid_universe_excludes_ice_softs_data_block_even_with_high_adv():
+    dates = pd.date_range("2024-06-01", periods=60, freq="D")
+    volume = pd.DataFrame({
+        "Liquid": [5000] * 60,
+        "Coffee": [5000] * 60,  # high ADV, but a known Databento stuck-front artifact
+    }, index=dates)
+    included, excluded = get_liquid_universe(volume, window_start="2024-06-01", threshold=1000)
+    assert "Liquid" in included
+    assert "Coffee" in excluded
+    assert set(ICE_SOFTS_DATA_BLOCKED) == {"Coffee", "Cotton", "OrangeJuice"}
