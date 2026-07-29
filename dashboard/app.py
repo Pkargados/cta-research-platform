@@ -103,7 +103,7 @@ macro_explorer = st.Page(
 
 nav = st.navigation({
     "Overview": [overview],
-    "Methodology": [volatility_estimators],
+    "Estimators": [volatility_estimators],
     "Strategy Performance": [
         momentum_performance, breakout_performance, crossover_performance,
         short_term_reversal_performance, carry_performance, xs_momentum_performance,

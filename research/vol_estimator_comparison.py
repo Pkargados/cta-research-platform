@@ -21,6 +21,7 @@ Run: `python research/vol_estimator_comparison.py` from the repo root.
 import sys
 from pathlib import Path
 
+import numpy as np
 import pandas as pd
 
 if hasattr(sys.stdout, "reconfigure"):
@@ -33,6 +34,7 @@ from data.universe import get_liquid_universe
 from data.volatility import yang_zhang_volatility
 from data.ewma_volatility import ewma_volatility
 from data.vol_forecast_eval import forward_realized_variance, qlike_loss, mse_vol_loss, per_asset_mean_loss
+from data.sectors import asset_to_sector
 from backtest.splits import TRAIN_END
 
 ADV_WINDOW_START = "2024-07-14"
@@ -78,6 +80,71 @@ def compare_at_horizon(vol_estimators, adj_returns, horizon):
     return pd.DataFrame(rows)
 
 
+def per_asset_comparison(vol_estimators, adj_returns, horizon):
+    """Per-asset mean QLIKE loss for each estimator (TRAIN period only), plus each
+    asset's own winner and the margin between them. Complements compare_at_horizon's
+    pooled average, which a handful of assets with unusually large loss gaps can
+    dominate -- this shows every asset's own comparison instead of collapsing straight
+    to one number. `winner`/`margin` are only set where BOTH estimators have a valid
+    (min_obs-satisfying) loss for that asset; otherwise NaN/None, not a misleading
+    single-estimator "winner"."""
+    realized_var = forward_realized_variance(adj_returns, horizon).loc[:TRAIN_END]
+    est_names = list(vol_estimators.keys())
+    cols = {}
+    for name, vol in vol_estimators.items():
+        forecast_var = (vol.loc[:TRAIN_END]) ** 2
+        qlike = qlike_loss(forecast_var, realized_var)
+        cols[name] = per_asset_mean_loss(qlike)
+    table = pd.DataFrame(cols)
+
+    mask = table[est_names].notna().all(axis=1)
+    table["winner"] = None
+    table.loc[mask, "winner"] = table.loc[mask, est_names].idxmin(axis=1)
+    table["margin"] = np.nan
+    table.loc[mask, "margin"] = table.loc[mask, est_names].max(axis=1) - table.loc[mask, est_names].min(axis=1)
+    return table
+
+
+def win_rate_summary(per_asset_table, estimator_names):
+    """Fraction of assets each estimator wins by QLIKE (assets with a valid
+    comparison for both estimators only) -- a magnitude-robust complement to the
+    pooled average, which can be swayed by a few large-margin assets."""
+    valid = per_asset_table.dropna(subset=["winner"])
+    total = len(valid)
+    counts = valid["winner"].value_counts().reindex(estimator_names, fill_value=0)
+    return pd.DataFrame({"wins": counts, "win_pct": counts / total if total else np.nan})
+
+
+def sector_breakdown(per_asset_table, estimator_names):
+    """Mean QLIKE per estimator, grouped by sector, plus each sector's own winner
+    and within-sector win-count -- does the pooled/win-rate winner hold up across
+    asset classes, or is it uneven? DESCRIPTIVE ONLY: several sectors here have
+    fewer than 5 members (IndustrialMetals has exactly one), so a per-sector winner
+    is thin evidence, not a basis for using a different estimator per sector without
+    a real significance test -- see research/vol_estimator_comparison.py's own
+    module docstring on why per-signal-Sharpe-based selection was already rejected
+    once for being economically incoherent; a per-sector QLIKE split naively adopted
+    without correcting for multiple comparisons would repeat that mistake one level
+    down, not fix it."""
+    df = per_asset_table.copy()
+    df["sector"] = df.index.map(asset_to_sector())
+    df = df.dropna(subset=["sector"])
+    rows = []
+    for sector, group in df.groupby("sector"):
+        valid = group.dropna(subset=estimator_names, how="any")
+        if valid.empty:
+            continue
+        means = valid[estimator_names].mean()
+        win_counts = valid["winner"].value_counts()
+        rows.append({
+            "sector": sector, "n_assets": len(valid),
+            **{f"mean_qlike_{name}": means[name] for name in estimator_names},
+            "winner": means.idxmin(),
+            **{f"wins_{name}": int(win_counts.get(name, 0)) for name in estimator_names},
+        })
+    return pd.DataFrame(rows).set_index("sector")
+
+
 def main():
     adj, raw = load_and_prepare_data()
     vol_estimators, adj_returns = build_vol_estimators(adj, raw)
@@ -96,6 +163,14 @@ def main():
     qlike_winner_by_horizon = full.loc[full.groupby("horizon_days")["mean_qlike"].idxmin()]
     print("\n--- QLIKE winner per horizon (lower is better) ---")
     print(qlike_winner_by_horizon[["horizon_days", "vol_estimator", "mean_qlike"]].to_string(index=False))
+
+    est_names = list(vol_estimators.keys())
+    for horizon in HORIZONS:
+        per_asset = per_asset_comparison(vol_estimators, adj_returns, horizon)
+        print(f"\n--- Win rate by asset, horizon = {horizon}d (magnitude-robust complement to the pooled average) ---")
+        print(win_rate_summary(per_asset, est_names).to_string())
+        print(f"\n--- Sector breakdown, horizon = {horizon}d (descriptive only, see function docstring) ---")
+        print(sector_breakdown(per_asset, est_names).round(4).to_string())
 
 
 if __name__ == "__main__":
