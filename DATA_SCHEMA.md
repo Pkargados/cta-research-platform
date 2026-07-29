@@ -168,6 +168,35 @@ layer, so what it shows is exactly what the monitoring job measured.
 - The 4 ICE softs' term-structure history is scoped to roughly the last two
   years, not the full available archive — a deliberate cost/scope tradeoff,
   not a technical limit.
+- **Found 2026-07-28: for 3 of the 5 ICE softs (Coffee, Cotton, OrangeJuice),
+  the scoped backfill above is missing rows for the contracts genuinely
+  trading in 2023-2024** — the only contract-symbol present in
+  `term_structure.parquet` on those early dates is a single far-dated one
+  (e.g. Coffee's `KCN26.NYB`, a July-2026 contract, present back to
+  2023-08-01 with volume=0). `continuous_curve.assign_front_contract()`
+  didn't malfunction — it correctly picked "whichever contract has real
+  data," there was just no genuine alternative to roll into, so it stayed
+  parked on that one thin contract for 13-28 months (Coffee ~13mo, Cotton
+  ~19mo, OrangeJuice ~28mo) before the daily forward-capture job started
+  populating real near-term contracts. The gap extends past these 3 assets'
+  own `trusted_since` cutoffs (`Data/asset_trusted_since.csv`), so the
+  existing trusted-era mask doesn't fully cover it. Price still tracks the
+  real commodity reasonably (checked directly against `Data/close.parquet` —
+  no roll-jump artifacts, ratio back-adjustment works correctly), but volume
+  is genuinely near-zero because that far-dated contract-month wasn't
+  actively trading in the real world at those historical dates — not
+  representative of genuine tradable liquidity. Sugar and Cocoa (the other 2
+  of the 5 ICE softs) show no such defect. **Fix applied**:
+  `src/data/universe.ICE_SOFTS_DATA_BLOCKED` excludes Coffee/Cotton/
+  OrangeJuice from `get_liquid_universe()` independently of their computed
+  ADV, so they stay excluded for the real, documented reason rather than as
+  an accidental side-effect of the ADV threshold. Doesn't change any
+  already-published momentum/breakout/crossover/portfolio result — all 3
+  already failed the ADV floor under `continuous_curve`'s own (corrupted)
+  volume anyway. Purchase-contingent, not a permanent liquidity judgment —
+  remove from that list once the fuller Databento ICE history (confirmed
+  available back to 2018-12-23, not yet purchased) is bought and the
+  stuck-front pattern is reverified as gone.
 - Classic cointegration/relative-value spreads (Corn/Wheat, Gold/Silver,
   Brent/WTI) have a rolling-window statistical foundation but no trading
   signal built on top yet.
