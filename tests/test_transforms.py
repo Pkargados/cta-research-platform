@@ -6,6 +6,7 @@ from signals.transforms import (
     continuous_signal,
     rank_signal,
     vol_targeted_sign_signal,
+    vol_targeted_sign_signal_with_deadband,
     cross_sectional_rank,
 )
 
@@ -52,6 +53,53 @@ def test_vol_targeted_sign_signal_propagates_nan():
     vol = pd.DataFrame({"A": [0.2]})
     result = vol_targeted_sign_signal(raw, vol, target_vol=0.4)
     assert pd.isna(result["A"].iloc[0])
+
+
+def test_deadband_flattens_below_own_trailing_quantile():
+    dates = pd.date_range("2020-01-01", periods=300, freq="D")
+    # Alternating weak (0.01) / strong (1.0) raw signal, always positive sign.
+    raw = pd.DataFrame({"A": [0.01 if i % 2 == 0 else 1.0 for i in range(300)]}, index=dates)
+    vol = pd.DataFrame({"A": [0.2] * 300}, index=dates)
+    result = vol_targeted_sign_signal_with_deadband(
+        raw, vol, target_vol=0.4, deadband_quantile=0.5, deadband_window=100, min_periods=60,
+    )
+    late = result["A"].iloc[250:]
+    # Median-quantile deadband on an alternating weak/strong series: the weak
+    # days should be flattened (0.0), the strong days should still trade.
+    assert (late[raw["A"].iloc[250:] < 0.5] == 0.0).all()
+    assert (late[raw["A"].iloc[250:] >= 0.5] != 0.0).all()
+
+
+def test_deadband_zero_quantile_reduces_to_always_in():
+    dates = pd.date_range("2020-01-01", periods=100, freq="D")
+    raw = pd.DataFrame({"A": np.linspace(0.01, 1.0, 100)}, index=dates)
+    vol = pd.DataFrame({"A": [0.2] * 100}, index=dates)
+    deadband = vol_targeted_sign_signal_with_deadband(
+        raw, vol, target_vol=0.4, deadband_quantile=0.0, deadband_window=50, min_periods=10,
+    )
+    always_in = vol_targeted_sign_signal(raw, vol, target_vol=0.4)
+    late = slice(20, None)
+    pd.testing.assert_series_equal(deadband["A"].iloc[late], always_in["A"].iloc[late])
+
+
+def test_deadband_preserves_nan_for_genuinely_missing_data():
+    dates = pd.date_range("2020-01-01", periods=100, freq="D")
+    raw = pd.DataFrame({"A": [np.nan] * 50 + list(np.linspace(0.01, 1.0, 50))}, index=dates)
+    vol = pd.DataFrame({"A": [0.2] * 100}, index=dates)
+    result = vol_targeted_sign_signal_with_deadband(raw, vol, target_vol=0.4)
+    assert result["A"].iloc[:50].isna().all()
+
+
+def test_deadband_flattens_during_warmup_before_min_periods():
+    dates = pd.date_range("2020-01-01", periods=10, freq="D")
+    raw = pd.DataFrame({"A": [1.0] * 10}, index=dates)
+    vol = pd.DataFrame({"A": [0.2] * 10}, index=dates)
+    result = vol_targeted_sign_signal_with_deadband(
+        raw, vol, target_vol=0.4, deadband_window=252, min_periods=60,
+    )
+    # Only 10 observations, min_periods=60 never satisfied -> flat throughout,
+    # not NaN (real data exists, just no validated threshold to trade against yet).
+    assert (result["A"] == 0.0).all()
 
 
 def test_cross_sectional_rank_demeans_within_sector_not_across():

@@ -40,6 +40,36 @@ def test_run_produces_weights_within_max_weight():
     assert (result["weights"].abs() <= 0.4 + 1e-9).all().all()
 
 
+def test_run_with_garch_vol_estimator_produces_valid_weights():
+    # n=150 > garch_min_warmup(104) + a few refit cycles, so the GARCH path
+    # actually activates (not just falls back to EWMA the whole way through).
+    dates, alpha_df, returns_df, cov_dict = _basic_setup(n=150)
+    book = _make_book(
+        alpha_df, cov_dict, max_weight=0.4,
+        vol_estimator="garch", garch_refit_freq=20, garch_min_warmup=104,
+    )
+    result = book.run(returns_df)
+    assert "weights" in result
+    assert len(result["weights"]) > 0
+    assert (result["weights"].abs() <= 0.4 + 1e-9).all().all()
+    assert not result["weights"].isna().any().any()
+
+
+def test_garch_vol_estimator_falls_back_to_ewma_before_warmup():
+    # With garch_min_warmup larger than the whole series, the GARCH branch
+    # never activates - current_var stays exactly the EWMA value throughout,
+    # so results should be identical to the plain "ewma" estimator.
+    dates, alpha_df, returns_df, cov_dict = _basic_setup(n=30)
+    ewma_book = _make_book(alpha_df, cov_dict, max_weight=0.4, vol_estimator="ewma")
+    garch_book = _make_book(
+        alpha_df, cov_dict, max_weight=0.4,
+        vol_estimator="garch", garch_min_warmup=1000,  # never reached with n=30
+    )
+    ewma_result = ewma_book.run(returns_df)
+    garch_result = garch_book.run(returns_df)
+    pd.testing.assert_frame_equal(ewma_result["weights"], garch_result["weights"])
+
+
 def test_run_too_few_common_dates_returns_degenerate_result():
     dates, alpha_df, returns_df, cov_dict = _basic_setup(n=30)
     # Restrict cov_dict to fewer than 20 dates -> Book.run()'s own early-return path.

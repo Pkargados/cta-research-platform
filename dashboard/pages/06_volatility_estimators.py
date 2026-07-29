@@ -29,6 +29,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parent.parent.parent / "research
 from lib import page_header, render_key_takeaways, CATEGORICAL, apply_chart_theme
 
 import vol_estimator_comparison as vec
+from book_vol_targeting_estimator import COMPARISON_CACHE_PATH as BOOK_VOL_COMPARISON_PATH, SERIES_CACHE_PATH as BOOK_VOL_SERIES_PATH
 
 page_header("Volatility Estimators", "Yang-Zhang vs. EWMA vs. GJR-GARCH — which forecasts realized variance better?")
 
@@ -220,3 +221,86 @@ st.caption(
     "`data/volatility.py`'s module docstring for why the back-adjusted curve "
     "isn't safe for a log-OHLC estimator in this project's older energy segments."
 )
+
+st.divider()
+
+st.subheader("Book-Level Vol-Targeting: EWMA vs. GJR-GARCH")
+st.markdown(
+    "A different question from everything above. The comparison on this page so far "
+    "forecasts each **asset's own price volatility** from OHLC bars — what sizes a "
+    "signal like `target_vol × sign(x) / vol`. `portfolio.book.Book._apply_vol_target` "
+    "forecasts something structurally different: the **Book's own aggregate realized "
+    "PnL volatility**, used to scale total Book leverage to hit its 10% target. "
+    "Different input, so the result above doesn't mechanically transfer — but GJR-GARCH "
+    "doesn't care whether the return series it's fed is an asset's price return or a "
+    "Book's own PnL, so there's no structural reason not to test the same question here."
+)
+
+try:
+    book_vol_comparison = pd.read_csv(BOOK_VOL_COMPARISON_PATH)
+    book_vol_series = pd.read_parquet(BOOK_VOL_SERIES_PATH)
+except FileNotFoundError:
+    st.info(
+        "Book-level comparison not yet computed — run `python research/"
+        "book_vol_targeting_estimator.py` from the repo root to generate it."
+    )
+else:
+    display = book_vol_comparison.rename(columns={
+        "book": "Book", "horizon": "Horizon (days)", "estimator": "Estimator",
+        "qlike": "Mean QLIKE (lower=better)", "mse_vol": "Mean MSE (vol)",
+    })
+    st.dataframe(display, use_container_width=True, hide_index=True)
+
+    winners = (
+        book_vol_comparison.dropna(subset=["qlike"])
+        .sort_values("qlike")
+        .groupby(["book", "horizon"], as_index=False)
+        .first()
+    )
+    all_garch = (winners["estimator"] == "gjr_garch").all()
+    decision_bullets = []
+    for _, row in winners.iterrows():
+        decision_bullets.append(
+            f"**{row['book'].capitalize()}**, {int(row['horizon'])}d: **{row['estimator']}** wins "
+            f"(QLIKE {row['qlike']:.3f})."
+        )
+    render_key_takeaways(decision_bullets + [
+        (
+            "**Decision: `Book.vol_estimator` switched from `\"ewma\"` (the retired stat-arb "
+            "engine's inherited default, never previously tested) to `\"garch\"` for the "
+            "Single Strategy Portfolios** — GJR-GARCH cuts QLIKE loss roughly 60-70% at every "
+            "horizon, for both Books, not a marginal edge. `Book`'s own EWMA-of-realized-PnL "
+            "recursion is kept as the default for every OTHER already-published Book result in "
+            "this project (backward compatible, opt-in via `vol_estimator=\"garch\"`), not "
+            "silently changed underneath them."
+            if all_garch else
+            "Mixed result across Books/horizons — see the table above for which estimator "
+            "actually wins where before assuming GARCH is adopted everywhere."
+        ),
+    ])
+
+    st.caption(
+        "Evaluated on the Books' own DAILY-marked PnL (`portfolio.book.daily_mark_pnl`), not "
+        "each Book's native weekly rebalance cadence directly — a disclosed extrapolation, not "
+        "a separately re-proven result at weekly granularity. TRAIN period only (CLAUDE.md "
+        "Rule 1/2). See `research/book_vol_targeting_estimator.py`'s module docstring for the "
+        "full method."
+    )
+
+    st.markdown("**Vol forecast over time**")
+    book_choice = st.radio("Book", ["trend", "carry"], horizontal=True, format_func=str.capitalize, key="book_vol_choice")
+    ewma_col, garch_col = f"{book_choice}_ewma", f"{book_choice}_garch"
+    ewma_series = book_vol_series[ewma_col].dropna()
+    garch_series = book_vol_series[garch_col].dropna()
+
+    fig_book = go.Figure()
+    fig_book.add_trace(go.Scatter(x=ewma_series.index, y=ewma_series.values, mode="lines", name="EWMA", line=dict(color=CATEGORICAL[1], width=1.3)))
+    fig_book.add_trace(go.Scatter(x=garch_series.index, y=garch_series.values, mode="lines", name="GJR-GARCH", line=dict(color=CATEGORICAL[4], width=1.3)))
+    fig_book.update_layout(
+        xaxis_title="Date", yaxis_title="Annualized volatility (of daily-marked Book PnL)",
+        height=380, margin=dict(t=20, b=20),
+        paper_bgcolor="rgba(0,0,0,0)", plot_bgcolor="rgba(0,0,0,0)",
+        legend=dict(orientation="h", y=1.12),
+    )
+    fig_book = apply_chart_theme(fig_book)
+    st.plotly_chart(fig_book, use_container_width=True, theme="streamlit")

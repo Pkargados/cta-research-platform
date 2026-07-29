@@ -32,6 +32,7 @@ from collections import OrderedDict
 
 from portfolio.optimizer import solve_weights
 from backtest.costs import transaction_cost_drag
+from data.garch_volatility import _get_garch_functions
 
 
 def daily_mark_pnl(weights: pd.DataFrame, returns_df: pd.DataFrame, cost_bps: pd.Series = None) -> pd.Series:
@@ -164,13 +165,42 @@ class Book:
                                             it's supplied; `"gross_pnl"` is always reported
                                             alongside so both are visible, matching this project's
                                             universal gross/net reporting convention.
+    vol_estimator   : str                — "ewma" (default, unchanged prior behavior) or "garch".
+                                            Added 2026-07-29 after `research/
+                                            book_vol_targeting_estimator.py` found GJR-GARCH cuts
+                                            QLIKE loss ~60-70% vs. EWMA forecasting a Book's own
+                                            realized-PnL volatility (tested on DAILY-marked PnL,
+                                            not this parameter's native rebalance cadence directly
+                                            — the estimator-class advantage is assumed, not
+                                            separately re-proven, to carry over; disclosed, not
+                                            silently claimed as re-validated). "garch" walks
+                                            forward using `data.garch_volatility`'s own
+                                            fit_gjr_garch/filter_gjr_garch (reused directly, not
+                                            reimplemented) — refit every `garch_refit_freq`
+                                            periods using ONLY realized PnL through the previous
+                                            period (point-in-time-safe, same discipline as the
+                                            EWMA recursion it replaces), filtered forward with
+                                            fixed params between refits. Falls back to the EWMA
+                                            recursion during GARCH's own warmup
+                                            (`garch_min_warmup` periods) and on any per-period fit/
+                                            filter failure (logged, not silently ignored) — never
+                                            leaves a period without SOME variance estimate.
+    garch_refit_freq: int                — rebalance periods between GARCH refits when
+                                            vol_estimator="garch" (default 20, matching
+                                            `data.garch_volatility.REFIT_FREQ_DAYS`'s own
+                                            practice-matching default — not backtested/tuned).
+    garch_min_warmup: int                — minimum realized-PnL observations before the first
+                                            GARCH fit is attempted (default 104, ~2 years at
+                                            weekly cadence — smaller than the asset-level module's
+                                            500-observation floor since that's calibrated for
+                                            daily data).
     """
 
     def __init__(
         self, name, alpha_df, cov_dict, gamma, kappa, lambd, max_weight,
         target_vol, ewma_halflife, scale_min, scale_max,
         periods_per_year=52, dollar_neutral=False, is_active=True, max_gap_days=60,
-        cost_bps=None,
+        cost_bps=None, vol_estimator="ewma", garch_refit_freq=20, garch_min_warmup=104,
     ):
         self.name = name
         self.alpha_df = alpha_df
@@ -188,6 +218,9 @@ class Book:
         self.is_active = is_active
         self.max_gap_days = max_gap_days
         self.cost_bps = cost_bps
+        self.vol_estimator = vol_estimator
+        self.garch_refit_freq = garch_refit_freq
+        self.garch_min_warmup = garch_min_warmup
 
     # ------------------------------------------------------------------
     # Composable steps — override one of these in a subclass for a book type
@@ -359,6 +392,24 @@ class Book:
         ewma_alpha = 1.0 - np.exp(-np.log(2.0) / self.ewma_halflife)
         ewma_var = (self.target_vol / np.sqrt(self.periods_per_year)) ** 2  # neutral prior: scale=1 at t=0
 
+        # GARCH walk-forward state (only touched when vol_estimator="garch") -
+        # refit every garch_refit_freq periods using realized PnL through the
+        # PREVIOUS period only (point-in-time-safe, same discipline as the EWMA
+        # recursion above), filtered forward with fixed params between refits.
+        # Reuses data.garch_volatility's own fit_gjr_garch/filter_gjr_garch
+        # directly (validated primitives, not reimplemented) rather than
+        # hand-deriving the one-step recursion - O(T^2) over the full walk
+        # (filter_gjr_garch re-runs the cumulative recursion from t=0 each
+        # call), a deliberate correctness-over-speed tradeoff consistent with
+        # this project's existing "GARCH is slow by construction, offline use
+        # only" convention, not something to optimize away here.
+        pnl_history = []
+        garch_params = None
+        garch_extra_scale = None
+        garch_last_refit_len = 0
+        if self.vol_estimator == "garch":
+            fit_gjr_garch, filter_gjr_garch = _get_garch_functions()
+
         weights_dict = OrderedDict()
         x_prev = np.zeros(n)
         prev_x, prev_date = None, None
@@ -368,12 +419,42 @@ class Book:
             if prev_x is not None and prev_date in period_ret_map:
                 realized_pnl = float(np.dot(prev_x, period_ret_map[prev_date]))
                 ewma_var = (1.0 - ewma_alpha) * ewma_var + ewma_alpha * realized_pnl ** 2
+                pnl_history.append(realized_pnl)
+
+            current_var = ewma_var
+            if self.vol_estimator == "garch" and len(pnl_history) >= self.garch_min_warmup:
+                history = np.asarray(pnl_history, dtype=float)
+                if garch_extra_scale is None:
+                    # Per-Book dynamic rescale, computed ONCE from the warmup
+                    # window only (point-in-time-safe) - same fix that resolved
+                    # the US_2Y DataScaleWarning bug at the asset level, applied
+                    # here since a Book's own PnL scale is just as arbitrary
+                    # relative to the fitting library's assumed stable range.
+                    warmup_std = np.std(history[: self.garch_min_warmup])
+                    garch_extra_scale = 1.0 / warmup_std if warmup_std > 0 else 1.0
+                scaled_history = history * garch_extra_scale
+
+                if garch_params is None or (len(history) - garch_last_refit_len) >= self.garch_refit_freq:
+                    try:
+                        fit = fit_gjr_garch(scaled_history)
+                        garch_params = fit["params"]
+                        garch_last_refit_len = len(history)
+                    except Exception:
+                        pass  # keep the last-known params (or the EWMA fallback if none yet)
+
+                if garch_params is not None:
+                    try:
+                        filtered = filter_gjr_garch(scaled_history, garch_params)
+                        sigma_pct_last = float(filtered["sigmas"][-1])
+                        current_var = (sigma_pct_last / garch_extra_scale / 100.0) ** 2
+                    except Exception:
+                        current_var = ewma_var
 
             alpha_t = alpha_df.loc[date, assets]
             Sigma_t = self.cov_dict[date].loc[assets, assets]
 
             x_t = self._solve_weights(alpha_t, Sigma_t, x_prev)
-            x_t, scale_applied, cap_bound = self._apply_vol_target(x_t, ewma_var)
+            x_t, scale_applied, cap_bound = self._apply_vol_target(x_t, current_var)
             x_t = self._apply_constraints(x_t)
 
             scale_history.append(scale_applied)

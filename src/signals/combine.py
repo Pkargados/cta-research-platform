@@ -17,6 +17,7 @@ Pure functions, no optimizer dependency, same convention as every other signal m
 in this project (CLAUDE.md Architecture section).
 """
 
+import numpy as np
 import pandas as pd
 
 
@@ -101,3 +102,84 @@ def ic_weighted_combine(alpha_dfs, forward_returns, lookback=252):
     normalized = normalized.where(~needs_fallback, other=1.0 / len(alpha_dfs))
 
     return sum(alpha_dfs[i].mul(normalized[i], axis=0) for i in range(len(alpha_dfs)))
+
+
+def risk_parity_combine(alpha_dfs, strategy_returns, lookback=252, min_periods=20):
+    """
+    Weight each signal inversely by its own trailing realized volatility (of its
+    OWN standalone strategy return stream, not the underlying assets') — each
+    signal contributes roughly equal RISK to the blend, rather than equal raw
+    alpha magnitude (method="equal") or equal predictive power
+    (`ic_weighted_combine`).
+
+    Same trailing-window / shift(1) / warmup-fallback shape as
+    `ic_weighted_combine`, for consistency — weights are computed once per date
+    (not per-asset) from each signal's own aggregate return series (`backtest.
+    engine.backtest_signal`'s daily-marked output, matching `research/
+    signal_correlation.py`'s own convention), then broadcast across every asset.
+
+    Parameters
+    ----------
+    alpha_dfs        : list[pd.DataFrame] (T×N) — one per signal to blend
+    strategy_returns : list[pd.Series] — each signal's OWN standalone strategy
+                        return series, one per alpha_df, same daily index
+    lookback         : int — trailing window (periods) for the rolling vol estimate
+    min_periods      : int — minimum trailing observations before a real (non-
+                        fallback) weight is used
+
+    Returns
+    -------
+    pd.DataFrame (T×N) — combined alpha, same shape as the inputs. Dates where
+    all trailing vols are ~0 or NaN (warmup) fall back to an equal-weighted blend.
+    """
+    inv_vols = []
+    for returns in strategy_returns:
+        # shift(1): today's weight uses only volatility knowable before today.
+        rolling_vol = returns.rolling(lookback, min_periods=min_periods).std().shift(1)
+        inv_vols.append(1.0 / rolling_vol.replace(0.0, float("nan")))
+
+    inv_vol_df = pd.concat(inv_vols, axis=1)
+    inv_vol_df.columns = range(len(alpha_dfs))
+
+    weight_sum = inv_vol_df.sum(axis=1)
+    needs_fallback = weight_sum.isna() | (weight_sum < 1e-8)
+
+    normalized = inv_vol_df.div(weight_sum.where(~needs_fallback), axis=0)
+    normalized = normalized.where(~needs_fallback, other=1.0 / len(alpha_dfs))
+
+    return sum(alpha_dfs[i].mul(normalized[i], axis=0) for i in range(len(alpha_dfs)))
+
+
+def confirmation_filter_combine(primary, confirm, agree_scale=1.0, disagree_scale=0.0):
+    """
+    Trade `primary` at `agree_scale`x its own size when `confirm` agrees on
+    direction (same sign), and at `disagree_scale`x when it doesn't — a gate,
+    not a blend. Qualitatively different from `combine_alphas`/
+    `ic_weighted_combine`/`risk_parity_combine` (all weighted averages of two
+    scores): here `confirm` only ever votes on DIRECTION, never contributes its
+    own magnitude to the combined position size.
+
+    `disagree_scale=0.0` (the default) means genuinely FLAT when the two signals
+    disagree, not just downsized — the "not constantly trading" behavior this was
+    built for: `primary` and `confirm` must actually agree before any position is
+    taken at all. NaN-safe: `np.sign(NaN) == np.sign(x)` is always False, so a
+    missing `primary` or `confirm` value is treated as "disagree" (scale applied),
+    and a NaN `primary` stays NaN after scaling (NaN * float = NaN) rather than
+    being silently zeroed — missing data is never mistaken for "no conviction."
+
+    Parameters
+    ----------
+    primary        : pd.DataFrame (T×N) — the signal whose magnitude sets position size
+    confirm        : pd.DataFrame (T×N) — only its SIGN is used, as a gate
+    agree_scale    : float — multiplier on `primary` when signs agree
+    disagree_scale : float — multiplier on `primary` when signs disagree (or either
+                     side is NaN)
+
+    Returns
+    -------
+    pd.DataFrame (T×N) — gated alpha, same shape as `primary`.
+    """
+    agree = np.sign(primary) == np.sign(confirm)
+    scale = pd.DataFrame(disagree_scale, index=primary.index, columns=primary.columns)
+    scale = scale.where(~agree, other=agree_scale)
+    return primary * scale
