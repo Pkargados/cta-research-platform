@@ -50,7 +50,7 @@ _REQUIRED_FILES = [
     "cpi_level_index.csv", "dashboard_summary", "dashboard_summary_manifest.csv",
     "databento_transform_manifest.csv", "gscpi_data.xls", "high.parquet", "low.parquet",
     "macro_data_manifest.csv", "metadata.csv", "open.parquet",
-    "overnight_fed_fund_rates_US.xlsx", "term_structure.parquet",
+    "overnight_fed_fund_rates_US.xlsx", "research", "term_structure.parquet",
     "term_structure_averages.parquet", "term_structure_butterflies.parquet",
     "term_structure_condors.parquet", "term_structure_manifest.csv",
     "term_structure_packs.parquet", "term_structure_spreads.parquet",
