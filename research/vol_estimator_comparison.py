@@ -1,7 +1,7 @@
 """
-research/vol_estimator_comparison.py — Project-wide Yang-Zhang vs. EWMA
-volatility-forecast accuracy comparison, via `data.vol_forecast_eval`'s QLIKE/MSE
-losses against forward-realized variance.
+research/vol_estimator_comparison.py — Project-wide Yang-Zhang vs. EWMA vs.
+GJR-GARCH volatility-forecast accuracy comparison, via `data.vol_forecast_eval`'s
+QLIKE/MSE losses against forward-realized variance.
 
 Signal-agnostic (no backtest Sharpe anywhere in this file) — see
 `data/vol_forecast_eval.py`'s own module docstring for why picking a vol
@@ -14,6 +14,17 @@ project-wide, forecast-accuracy-only answer to that question.
 Evaluated on the TRAIN period only (CLAUDE.md Rule 1/2's "never pick a spec by
 looking at [out-of-sample] results" discipline, applied here to forecast-accuracy
 selection, not backtest performance).
+
+GJR-GARCH (`data.garch_volatility`, wrapping the external `dcc_garch` package,
+originally built for a separate DCC-GARCH correlation project) added per direct
+instruction — a genuine third candidate, not just Yang-Zhang vs. EWMA, since
+GJR-GARCH's asymmetric-shock response is a well-regarded standard in the vol-
+forecasting literature and validated code already existed. Refit every 20
+trading days (~monthly), filtered daily between refits with fixed parameters —
+standard GARCH practice, not a backtested/tuned choice. Slow (real MLE fits per
+asset per refit window, ~3s/asset for the train period alone) — precomputed
+once via `load_or_compute_garch()` and cached to Data/research/garch_volatility.parquet,
+never recomputed live.
 
 Run: `python research/vol_estimator_comparison.py` from the repo root.
 """
@@ -33,6 +44,7 @@ from data.continuous_curve import load_continuous_backadjusted, load_continuous_
 from data.universe import get_liquid_universe
 from data.volatility import yang_zhang_volatility
 from data.ewma_volatility import ewma_volatility
+from data.garch_volatility import gjr_garch_volatility
 from data.vol_forecast_eval import forward_realized_variance, qlike_loss, mse_vol_loss, per_asset_mean_loss
 from data.sectors import asset_to_sector
 from backtest.splits import TRAIN_END
@@ -41,6 +53,7 @@ ADV_WINDOW_START = "2024-07-14"
 ADV_THRESHOLD = 1000
 YZ_WINDOW = 63
 HORIZONS = (21, 63)  # ~1 month, ~1 quarter ahead
+GARCH_CACHE_PATH = Path(__file__).resolve().parent.parent / "Data" / "research" / "garch_volatility.parquet"
 
 
 def load_and_prepare_data():
@@ -59,6 +72,28 @@ def build_vol_estimators(adj, raw):
     adj_returns = adj["close"].pct_change(fill_method=None)
     ewma = ewma_volatility(adj_returns)
     return {"yang_zhang": yang_zhang, "ewma": ewma}, adj_returns
+
+
+def load_or_compute_garch(adj_returns: pd.DataFrame, force: bool = False) -> pd.DataFrame:
+    """Cached GJR-GARCH volatility -- computed once (real MLE fits, slow) and
+    reused from Data/research/garch_volatility.parquet on every subsequent call,
+    never recomputed live."""
+    if not force and GARCH_CACHE_PATH.exists():
+        return pd.read_parquet(GARCH_CACHE_PATH)
+    garch = gjr_garch_volatility(adj_returns)
+    GARCH_CACHE_PATH.parent.mkdir(parents=True, exist_ok=True)
+    garch.to_parquet(GARCH_CACHE_PATH)
+    return garch
+
+
+def build_vol_estimators_with_garch(adj, raw, force_garch: bool = False):
+    """build_vol_estimators() plus a third 'gjr_garch' key, for the full
+    3-way comparison. Kept separate from build_vol_estimators() itself so
+    every existing caller (the dashboard's live-computed pages) stays fast
+    and unaffected -- GARCH is opt-in, not a default dependency."""
+    vol_estimators, adj_returns = build_vol_estimators(adj, raw)
+    vol_estimators["gjr_garch"] = load_or_compute_garch(adj_returns, force=force_garch)
+    return vol_estimators, adj_returns
 
 
 def compare_at_horizon(vol_estimators, adj_returns, horizon):
@@ -147,7 +182,7 @@ def sector_breakdown(per_asset_table, estimator_names):
 
 def main():
     adj, raw = load_and_prepare_data()
-    vol_estimators, adj_returns = build_vol_estimators(adj, raw)
+    vol_estimators, adj_returns = build_vol_estimators_with_garch(adj, raw)
 
     print("--- Forecast accuracy, TRAIN period only, mean across assets ---")
     all_rows = []

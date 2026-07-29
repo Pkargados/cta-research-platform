@@ -48,3 +48,7 @@ project-review.html
 
 # Raw output from local transform runs -- session artifacts, not source.
 databento/*.log
+
+# On-demand clone of the public dcc-garch-python package (data/garch_volatility.py)
+# -- cloned fresh wherever needed, not vendored into this repo's own history.
+.external/
