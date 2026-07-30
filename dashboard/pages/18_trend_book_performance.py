@@ -17,11 +17,12 @@ import streamlit as st
 
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent.parent / "src"))
-from lib import page_header, render_key_takeaways, CATEGORICAL, apply_chart_theme
+from lib import page_header, render_key_takeaways, CATEGORICAL, apply_chart_theme, render_attribution_section
 from _single_strategy_pipeline import load_and_run, TREND_FLAVOR
 
 from backtest.splits import TRAIN_END, VALIDATION_END, train_validation_test_split
 from backtest.performance import simple_sharpe
+from data.sectors import asset_to_sector
 
 page_header("Trend Book", "Single Strategy Portfolio — TSMOM alone, GJR-GARCH vol-targeted")
 
@@ -90,3 +91,7 @@ stats_df = pd.DataFrame({
     for _, label, series in periods
 }).T
 st.dataframe(stats_df.round(4), use_container_width=True)
+
+st.divider()
+
+render_attribution_section(trend_result["asset_contributions"], asset_to_sector(), key_prefix="trend")

@@ -18,12 +18,13 @@ import streamlit as st
 
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent.parent / "src"))
-from lib import page_header, render_key_takeaways, CATEGORICAL, apply_chart_theme
+from lib import page_header, render_key_takeaways, CATEGORICAL, apply_chart_theme, render_attribution_section
 from _single_strategy_pipeline import load_and_run
 
 from portfolio.risk_metrics import historical_var, expected_shortfall, expanding_var_and_es
 from backtest.splits import TRAIN_END, VALIDATION_END, train_validation_test_split
 from backtest.performance import simple_sharpe
+from data.sectors import asset_to_sector
 
 page_header("Multi-Strategy Portfolio", "Trend Book + Carry Book, combined via the Allocator (equal Book-risk baseline)")
 
@@ -99,6 +100,42 @@ fig2.update_layout(
 )
 fig2 = apply_chart_theme(fig2)
 st.plotly_chart(fig2, use_container_width=True, theme="streamlit")
+
+st.divider()
+
+st.subheader("Attribution — Cumulative Contribution by Book")
+fig_book_attr = go.Figure()
+for i, (name, result) in enumerate([("Trend", trend_result), ("Carry", carry_result)]):
+    pnl = result.get("pnl")
+    if pnl is None or len(pnl) == 0:
+        continue
+    fig_book_attr.add_trace(go.Scatter(
+        x=pnl.index, y=pnl.cumsum(), mode="lines", name=name,
+        line=dict(color=CATEGORICAL[i % len(CATEGORICAL)], width=1.4),
+    ))
+fig_book_attr.update_layout(
+    xaxis_title="Date", yaxis_title="Cumulative contribution (sum of period returns)",
+    height=380, margin=dict(t=20, b=20),
+    paper_bgcolor="rgba(0,0,0,0)", plot_bgcolor="rgba(0,0,0,0)",
+    legend=dict(orientation="h", y=1.15),
+)
+fig_book_attr = apply_chart_theme(fig_book_attr)
+st.plotly_chart(fig_book_attr, use_container_width=True, theme="streamlit")
+st.caption(
+    "The Allocator combines Books by simple addition (`portfolio.allocator.Allocator`) — "
+    "each Book's own cumulative contribution here sums exactly to the combined portfolio's "
+    "own cumulative return at any date, no approximation."
+)
+
+st.divider()
+
+combined_contributions = trend_result["asset_contributions"].add(carry_result["asset_contributions"], fill_value=0.0)
+render_attribution_section(combined_contributions, asset_to_sector(), key_prefix="combined")
+st.caption(
+    "Combined across both Books (Trend's and Carry's own per-asset gross contributions, "
+    "summed date-by-date) — the same asset can carry a Trend position and a Carry position "
+    "at once, so this is exposure attribution for the whole portfolio, not per-Book."
+)
 
 st.divider()
 

@@ -328,7 +328,7 @@ class Book:
         return period_ret_map, n_stale_gaps
 
     def _compute_pnl(self, w_df, period_ret_map, assets):
-        """Returns (pnl, gross_pnl, turnover_s, real_cost_s, sharpe, max_dd).
+        """Returns (pnl, gross_pnl, turnover_s, real_cost_s, sharpe, max_dd, asset_contributions).
 
         `pnl` = `gross_pnl` - `lambd`-penalty (ex-ante optimizer smoothing,
         unchanged from before) - real transaction-cost drag (ex-post, only if
@@ -337,7 +337,18 @@ class Book:
         twice). `gross_pnl` and `real_cost_s` are both returned so a caller
         can see gross-vs-net explicitly, matching this project's universal
         reporting convention (CLAUDE.md's every other signal already reports
-        gross AND net; this Book-level path previously couldn't)."""
+        gross AND net; this Book-level path previously couldn't).
+
+        `asset_contributions` (added 2026-07-29, per direct instruction —
+        performance attribution): a (T x N) DataFrame, `w_held * nr_held`
+        BEFORE the row-sum that collapses it into `gross_pnl` — each asset's
+        own exact contribution to that period's GROSS return. Not
+        approximated: `asset_contributions.sum(axis=1) == gross_pnl` exactly,
+        since it's the same elementwise product, just not yet summed. Scoped
+        to gross (not net) — `lambd`'s turnover penalty and `cost_bps`'s real
+        cost are portfolio-level quantities from `turnover_s`'s aggregate
+        position change, not cleanly attributable to one asset without an
+        extra modeling choice this doesn't make."""
         hold_dates = w_df.index.intersection(pd.DatetimeIndex(period_ret_map.keys()))
         ret_rows = {d: pd.Series(v, index=assets) for d, v in period_ret_map.items() if d in hold_dates}
         next_ret = pd.DataFrame(ret_rows).T
@@ -345,7 +356,8 @@ class Book:
 
         w_held = w_df.loc[hold_dates]
         nr_held = next_ret.loc[hold_dates]
-        gross_pnl = pd.Series((w_held.values * nr_held.values).sum(axis=1), index=hold_dates)
+        asset_contributions = pd.DataFrame(w_held.values * nr_held.values, index=hold_dates, columns=assets)
+        gross_pnl = asset_contributions.sum(axis=1)
         turnover_s = w_held.diff().abs().sum(axis=1).fillna(0.0)
         lambd_penalty_s = self.lambd * turnover_s
 
@@ -362,7 +374,7 @@ class Book:
         running_max = cumret.cummax()
         max_dd = float(((cumret - running_max) / running_max).min()) if len(cumret) else np.nan
 
-        return pnl, gross_pnl, turnover_s, real_cost_s, sharpe, max_dd
+        return pnl, gross_pnl, turnover_s, real_cost_s, sharpe, max_dd, asset_contributions
 
     # ------------------------------------------------------------------
     def run(self, returns_df: pd.DataFrame) -> dict:
@@ -464,7 +476,7 @@ class Book:
             prev_x, prev_date = x_t.copy(), date
 
         w_df = pd.DataFrame(weights_dict, index=assets).T
-        pnl, gross_pnl, turnover_s, real_cost_s, sharpe, max_dd = self._compute_pnl(w_df, period_ret_map, assets)
+        pnl, gross_pnl, turnover_s, real_cost_s, sharpe, max_dd, asset_contributions = self._compute_pnl(w_df, period_ret_map, assets)
 
         return {
             "weights": w_df.loc[pnl.index] if len(pnl) else w_df,
@@ -476,6 +488,10 @@ class Book:
             # existing caller that doesn't pass it).
             "gross_pnl": gross_pnl,
             "real_cost_series": real_cost_s,
+            # Per-asset attribution (added 2026-07-29) — see _compute_pnl's own
+            # docstring: exact elementwise decomposition of gross_pnl, not an
+            # approximation. asset_contributions.sum(axis=1) == gross_pnl.
+            "asset_contributions": asset_contributions,
             "sharpe": round(float(sharpe), 4) if pd.notna(sharpe) else np.nan,
             "max_dd": round(max_dd, 4) if pd.notna(max_dd) else np.nan,
             "turnover": round(float(turnover_s.mean()), 6) if len(turnover_s) else np.nan,
