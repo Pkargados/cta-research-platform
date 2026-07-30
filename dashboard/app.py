@@ -119,6 +119,11 @@ value_performance = st.Page(
     title="Value",
     icon=":material/sell:",
 )
+other_signal_families = st.Page(
+    PAGES_DIR / "21_other_signal_families.py",
+    title="Other Signal Families (Summary)",
+    icon=":material/summarize:",
+)
 portfolio_performance = st.Page(
     PAGES_DIR / "13_portfolio_performance.py",
     title="Portfolio Construction",
@@ -157,7 +162,7 @@ nav = st.navigation({
     "Strategy Performance": [
         momentum_performance, breakout_performance, crossover_performance,
         short_term_reversal_performance, carry_performance, xs_momentum_performance,
-        value_performance,
+        value_performance, other_signal_families,
     ],
     "Portfolio Construction": [portfolio_performance],
     "Single Strategy Portfolios": [trend_book_performance, carry_book_performance],
