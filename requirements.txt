@@ -11,3 +11,4 @@ requests
 pandas_market_calendars
 xlrd
 pyarrow
+arch
