@@ -7,9 +7,13 @@ Navigation-router pattern: this file only defines the sidebar structure via
 st.navigation()/st.Page() and renders nothing itself. Pages 00-04 (Data QA)
 read pre-computed artifacts from Data/dashboard_summary/ — produced by
 jobs/update_dashboard_summary.py (CTA_DashboardSummary, daily 6:25PM). Pages
-05-20 (Strategy Performance, Portfolio Construction, Single/Multi-Strategy
-Portfolios, Macro) compute live at render time instead — see each page's own
-module docstring. Pages 18-20 (Single/Multi-Strategy Portfolios) share ONE
+05-20 (Strategy Performance, Single/Multi-Strategy Portfolios, Macro,
+Technical Appendix) compute live at render time instead — see each page's
+own module docstring. Portfolio Construction (13, the original 6-Book pilot)
+now lives in "Technical Appendix" alongside Volatility Estimators and
+Optimizer Health — superseded by Single/Multi-Strategy Portfolios as the
+actual current result, kept for whoever wants the machinery/methodology
+history rather than up front. Pages 18-20 (Single/Multi-Strategy Portfolios) share ONE
 cached pipeline (dashboard/_single_strategy_pipeline.py), not one per page —
 see that module's docstring for why (a real prior OOM crash from the
 equivalent mistake on pages 13/14).
@@ -164,11 +168,10 @@ nav = st.navigation({
         short_term_reversal_performance, carry_performance, xs_momentum_performance,
         value_performance, other_signal_families,
     ],
-    "Portfolio Construction": [portfolio_performance],
     "Single Strategy Portfolios": [trend_book_performance, carry_book_performance],
     "Multi-Strategy Portfolios": [multi_strategy_portfolio],
     "Macro Data": [macro_explorer],
-    "Technical Appendix": [volatility_estimators, portfolio_optimizer_health],
+    "Technical Appendix": [volatility_estimators, portfolio_optimizer_health, portfolio_performance],
 })
 
 nav.run()
