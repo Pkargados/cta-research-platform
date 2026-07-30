@@ -103,6 +103,21 @@ macro_explorer = st.Page(
     title="Macro Explorer",
     icon=":material/query_stats:",
 )
+trend_book_performance = st.Page(
+    PAGES_DIR / "18_trend_book_performance.py",
+    title="Trend Book",
+    icon=":material/show_chart:",
+)
+carry_book_performance = st.Page(
+    PAGES_DIR / "19_carry_book_performance.py",
+    title="Carry Book",
+    icon=":material/percent:",
+)
+multi_strategy_portfolio = st.Page(
+    PAGES_DIR / "20_multi_strategy_portfolio.py",
+    title="Trend + Carry",
+    icon=":material/account_tree:",
+)
 
 nav = st.navigation({
     "Overview": [overview],
@@ -112,6 +127,8 @@ nav = st.navigation({
         value_performance,
     ],
     "Portfolio Construction": [portfolio_performance],
+    "Single Strategy Portfolios": [trend_book_performance, carry_book_performance],
+    "Multi-Strategy Portfolios": [multi_strategy_portfolio],
     "Macro Data": [macro_explorer],
     "Technical Appendix": [volatility_estimators, portfolio_optimizer_health],
 })
