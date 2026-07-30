@@ -7,7 +7,7 @@ Navigation-router pattern: this file only defines the sidebar structure via
 st.navigation()/st.Page() and renders nothing itself. Every page computes
 live at render time — see each page's own module docstring.
 
-Six pages are intentionally not registered in this public build's
+Twelve pages are intentionally not registered in this public build's
 navigation (files still exist, just unrouted here — see them on master):
 Term Structure and Continuous Curve display actual Databento-sourced price/
 curve levels directly, a licensing distinction (everything else here is a
@@ -22,7 +22,14 @@ than up front — both validate machinery/methodology (does the vol estimator
 forecast well, is the optimizer behaving sanely) rather than reporting a
 result, so they're placed after the actual research (Strategy Performance,
 Portfolio Construction) for whoever wants to verify the rigor behind it,
-not as the first thing a visitor sees.
+not as the first thing a visitor sees. Breakout, Crossover, Short-Term
+Reversal, Carry (standalone), Cross-Sectional Momentum, and Value each had
+their own full chart-heavy page — same treatment as Momentum, the one
+consistently positive family — regardless of whether a weak-to-mixed result
+justified it. Folded into one "Other Signal Families" summary page instead
+(21_other_signal_families.py): every number and finding is unchanged and
+still reported (nothing hidden — see that page's own docstring), just not
+diluting the one strong result under six weak ones with equal visual weight.
 
 Overview (page 17) is the default landing page — a static, no-computation
 project narrative, since a visitor's first click shouldn't land on a live
@@ -58,35 +65,10 @@ momentum_performance = st.Page(
     title="Momentum",
     icon=":material/trending_up:",
 )
-breakout_performance = st.Page(
-    PAGES_DIR / "08_breakout_performance.py",
-    title="Breakout",
-    icon=":material/bolt:",
-)
-crossover_performance = st.Page(
-    PAGES_DIR / "09_crossover_performance.py",
-    title="Crossover",
-    icon=":material/candlestick_chart:",
-)
-short_term_reversal_performance = st.Page(
-    PAGES_DIR / "10_short_term_reversal_performance.py",
-    title="Short-Term Reversal",
-    icon=":material/swap_horiz:",
-)
-carry_performance = st.Page(
-    PAGES_DIR / "11_carry_performance.py",
-    title="Carry",
-    icon=":material/percent:",
-)
-xs_momentum_performance = st.Page(
-    PAGES_DIR / "12_xs_momentum_performance.py",
-    title="Cross-Sectional Momentum",
-    icon=":material/leaderboard:",
-)
-value_performance = st.Page(
-    PAGES_DIR / "16_value_performance.py",
-    title="Value",
-    icon=":material/sell:",
+other_signal_families = st.Page(
+    PAGES_DIR / "21_other_signal_families.py",
+    title="Other Signal Families (Summary)",
+    icon=":material/summarize:",
 )
 portfolio_performance = st.Page(
     PAGES_DIR / "13_portfolio_performance.py",
@@ -121,11 +103,7 @@ multi_strategy_portfolio = st.Page(
 
 nav = st.navigation({
     "Overview": [overview],
-    "Strategy Performance": [
-        momentum_performance, breakout_performance, crossover_performance,
-        short_term_reversal_performance, carry_performance, xs_momentum_performance,
-        value_performance,
-    ],
+    "Strategy Performance": [momentum_performance, other_signal_families],
     "Portfolio Construction": [portfolio_performance],
     "Single Strategy Portfolios": [trend_book_performance, carry_book_performance],
     "Multi-Strategy Portfolios": [multi_strategy_portfolio],
