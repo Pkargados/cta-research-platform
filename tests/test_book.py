@@ -70,6 +70,22 @@ def test_garch_vol_estimator_falls_back_to_ewma_before_warmup():
     pd.testing.assert_frame_equal(ewma_result["weights"], garch_result["weights"])
 
 
+def test_asset_contributions_sum_to_gross_pnl():
+    dates, alpha_df, returns_df, cov_dict = _basic_setup()
+    book = _make_book(alpha_df, cov_dict)
+    result = book.run(returns_df)
+    summed = result["asset_contributions"].sum(axis=1)
+    pd.testing.assert_series_equal(summed, result["gross_pnl"], check_names=False)
+
+
+def test_asset_contributions_columns_match_assets():
+    dates, alpha_df, returns_df, cov_dict = _basic_setup()
+    book = _make_book(alpha_df, cov_dict)
+    result = book.run(returns_df)
+    assert set(result["asset_contributions"].columns) == set(ASSETS)
+    assert list(result["asset_contributions"].index) == list(result["pnl"].index)
+
+
 def test_run_too_few_common_dates_returns_degenerate_result():
     dates, alpha_df, returns_df, cov_dict = _basic_setup(n=30)
     # Restrict cov_dict to fewer than 20 dates -> Book.run()'s own early-return path.

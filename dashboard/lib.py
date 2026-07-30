@@ -93,6 +93,85 @@ def render_key_takeaways(bullets: list[str]) -> None:
             st.markdown(f"- {bullet}")
 
 
+def render_attribution_section(asset_contributions: pd.DataFrame, sectors_map: dict, key_prefix: str = "") -> None:
+    """Performance attribution — which exposures a Book's (or combined
+    portfolio's) equity curve actually came from, not just the pooled curve
+    itself.
+
+    `asset_contributions` : (T x N) DataFrame, each asset's own exact
+    contribution to that period's gross return (`portfolio.book.Book.run()`'s
+    own `"asset_contributions"` key — `.sum(axis=1)` reproduces gross_pnl
+    exactly, no approximation). `sectors_map` : asset -> sector, e.g.
+    `data.sectors.asset_to_sector()`.
+
+    Three views: total contribution by sector (the digestible rollup — 9
+    groups, not 36), total contribution by asset (the detail, on request via
+    an expander), and cumulative contribution by sector over time (where in
+    the backtest each sector's exposure actually drove the equity curve, not
+    just how much overall).
+    """
+    import plotly.graph_objects as go
+
+    total_by_asset = asset_contributions.sum(axis=0).sort_values()
+    sector_of = pd.Series({a: sectors_map.get(a, "Other") for a in asset_contributions.columns})
+    total_by_sector = total_by_asset.groupby(sector_of).sum().sort_values()
+
+    st.subheader("Attribution — Contribution by Sector")
+    fig1 = go.Figure(go.Bar(
+        x=total_by_sector.values, y=total_by_sector.index, orientation="h",
+        marker_color=[CATEGORICAL[1] if v >= 0 else CATEGORICAL[5] for v in total_by_sector.values],
+    ))
+    fig1.update_layout(
+        xaxis_title="Cumulative gross contribution", yaxis_title=None,
+        height=340, margin=dict(t=20, b=20),
+        paper_bgcolor="rgba(0,0,0,0)", plot_bgcolor="rgba(0,0,0,0)",
+    )
+    fig1 = apply_chart_theme(fig1)
+    st.plotly_chart(fig1, use_container_width=True, theme="streamlit", key=f"{key_prefix}_sector_bar")
+    st.caption(
+        "Sum of each sector's own exact per-period gross-return contribution "
+        "(weight x realized return, before summing across assets) — not an "
+        "approximation; sectors sum to the Book's own gross cumulative return."
+    )
+
+    with st.expander("Attribution by individual asset"):
+        fig2 = go.Figure(go.Bar(
+            x=total_by_asset.values, y=total_by_asset.index, orientation="h",
+            marker_color=[CATEGORICAL[1] if v >= 0 else CATEGORICAL[5] for v in total_by_asset.values],
+        ))
+        fig2.update_layout(
+            xaxis_title="Cumulative gross contribution", yaxis_title=None,
+            height=max(340, 14 * len(total_by_asset)), margin=dict(t=20, b=20),
+            paper_bgcolor="rgba(0,0,0,0)", plot_bgcolor="rgba(0,0,0,0)",
+        )
+        fig2 = apply_chart_theme(fig2)
+        st.plotly_chart(fig2, use_container_width=True, theme="streamlit", key=f"{key_prefix}_asset_bar")
+
+    st.subheader("Attribution Over Time — Cumulative Contribution by Sector")
+    by_sector_over_time = asset_contributions.T.groupby(sector_of).sum().T
+    cum_by_sector = by_sector_over_time.cumsum()
+    fig3 = go.Figure()
+    for i, sector in enumerate(cum_by_sector.columns):
+        fig3.add_trace(go.Scatter(
+            x=cum_by_sector.index, y=cum_by_sector[sector], mode="lines", name=sector,
+            line=dict(color=CATEGORICAL[i % len(CATEGORICAL)], width=1.4),
+        ))
+    fig3.update_layout(
+        xaxis_title="Date", yaxis_title="Cumulative gross contribution",
+        height=440, margin=dict(t=20, b=20),
+        paper_bgcolor="rgba(0,0,0,0)", plot_bgcolor="rgba(0,0,0,0)",
+        legend=dict(orientation="h", y=1.15),
+    )
+    fig3 = apply_chart_theme(fig3)
+    st.plotly_chart(fig3, use_container_width=True, theme="streamlit", key=f"{key_prefix}_sector_time")
+    st.caption(
+        "Each line is that sector's own running sum of gross contribution — where "
+        "in the backtest a sector was actually driving the equity curve, not just "
+        "how much it contributed in total. Additive: summing all lines at any date "
+        "reproduces the Book's own gross cumulative return at that date."
+    )
+
+
 # Maps our hex palette to Streamlit's fixed `:color[text]` markdown keywords
 # (blue/green/orange/red/violet/gray/rainbow — not arbitrary hex).
 _STREAMLIT_COLOR_KEYWORDS = {
