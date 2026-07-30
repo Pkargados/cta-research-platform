@@ -7,7 +7,7 @@ Navigation-router pattern: this file only defines the sidebar structure via
 st.navigation()/st.Page() and renders nothing itself. Every page computes
 live at render time — see each page's own module docstring.
 
-Twelve pages are intentionally not registered in this public build's
+Fourteen pages are intentionally not registered in this public build's
 navigation (files still exist, just unrouted here — see them on master):
 Term Structure and Continuous Curve display actual Databento-sourced price/
 curve levels directly, a licensing distinction (everything else here is a
@@ -22,14 +22,15 @@ than up front — both validate machinery/methodology (does the vol estimator
 forecast well, is the optimizer behaving sanely) rather than reporting a
 result, so they're placed after the actual research (Strategy Performance,
 Portfolio Construction) for whoever wants to verify the rigor behind it,
-not as the first thing a visitor sees. Breakout, Crossover, Short-Term
-Reversal, Carry (standalone), Cross-Sectional Momentum, and Value each had
-their own full chart-heavy page — same treatment as Momentum, the one
-consistently positive family — regardless of whether a weak-to-mixed result
-justified it. Folded into one "Other Signal Families" summary page instead
-(21_other_signal_families.py): every number and finding is unchanged and
-still reported (nothing hidden — see that page's own docstring), just not
-diluting the one strong result under six weak ones with equal visual weight.
+not as the first thing a visitor sees. The entire "Strategy Performance"
+group (Momentum plus the six weaker families that were briefly folded into
+an "Other Signal Families" summary page) is removed from this build's nav —
+Single Strategy Portfolios (Trend Book, Carry Book) supersedes it as the
+public-facing story: those two pages show the actual decided construction
+and vol-targeting choice for each, not the individual per-signal research
+that fed into deciding them. That underlying research (07_momentum_
+performance.py, 21_other_signal_families.py, and the rest) still exists and
+stays routed on master.
 
 Overview (page 17) is the default landing page — a static, no-computation
 project narrative, since a visitor's first click shouldn't land on a live
@@ -59,16 +60,6 @@ volatility_estimators = st.Page(
     PAGES_DIR / "06_volatility_estimators.py",
     title="Volatility Estimators",
     icon=":material/query_stats:",
-)
-momentum_performance = st.Page(
-    PAGES_DIR / "07_momentum_performance.py",
-    title="Momentum",
-    icon=":material/trending_up:",
-)
-other_signal_families = st.Page(
-    PAGES_DIR / "21_other_signal_families.py",
-    title="Other Signal Families (Summary)",
-    icon=":material/summarize:",
 )
 portfolio_performance = st.Page(
     PAGES_DIR / "13_portfolio_performance.py",
@@ -103,7 +94,6 @@ multi_strategy_portfolio = st.Page(
 
 nav = st.navigation({
     "Overview": [overview],
-    "Strategy Performance": [momentum_performance, other_signal_families],
     "Portfolio Construction": [portfolio_performance],
     "Single Strategy Portfolios": [trend_book_performance, carry_book_performance],
     "Multi-Strategy Portfolios": [multi_strategy_portfolio],
