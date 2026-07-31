@@ -21,6 +21,18 @@ Design constraints (invariants)
   books with different date coverage.
 - With a single active book and no regime_lookup, combined_pnl is identical to
   book.run()["pnl"].
+- `book_weights` (added 2026-07-30, WORKFLOW.md decision #12): an optional
+  {book.name: float} multiplier applied to each book's own "pnl" (and
+  "asset_contributions", if present) BEFORE the `.add(fill_value=0.0)`
+  combination — same mechanic `research/sleeve_risk_parity.py`'s own
+  `combine_static` already validated on real Trend/Carry Book PnL. A book
+  not named in `book_weights` defaults to 1.0, so the default `book_weights=
+  None` (-> {}) preserves the exact prior equal-sum behavior for every
+  existing caller. This is a STATIC weight, decided once by the caller
+  (e.g. `portfolio.risk_parity.risk_parity_weights` fit on train-period
+  sleeve PnL) — the Allocator itself has no covariance-estimation logic,
+  same architectural boundary `regime_lookup` already establishes (content/
+  computation lives outside this module, only the injection point does).
 """
 
 import pandas as pd
@@ -28,7 +40,8 @@ import pandas as pd
 
 class Allocator:
     """
-    Combines a list of Books, optionally conditioning each on a regime signal.
+    Combines a list of Books, optionally conditioning each on a regime signal
+    and/or weighting each Book's PnL contribution.
 
     Parameters
     ----------
@@ -37,22 +50,29 @@ class Allocator:
         Optional `date -> {book_name: {"active": bool, "alpha_multiplier": float}}`.
         See src/regime/ for the interface this is expected to satisfy — content
         (what regime, how it's classified) is deliberately not this module's concern.
+    book_weights  : dict[str, float] | None
+        Optional {book.name: weight} multiplier on each book's PnL contribution
+        before combining — see module docstring. Missing names default to 1.0.
     """
 
-    def __init__(self, books, regime_lookup=None):
+    def __init__(self, books, regime_lookup=None, book_weights=None):
         self.books = books
         self.regime_lookup = regime_lookup
+        self.book_weights = book_weights or {}
 
     def run(self, returns_df: pd.DataFrame) -> dict:
         """
         Run all active books (regime-conditioned if regime_lookup is set) and combine
-        their PnL by addition.
+        their PnL by weighted addition (weight defaults to 1.0 — see book_weights).
 
         Returns
         -------
         dict with:
-            "pnl"          : pd.Series — combined PnL (sum across active books)
-            "book_results" : dict[str, dict] — {book.name: result} for each active book
+            "pnl"                 : pd.Series — weighted combined PnL across active books
+            "book_results"        : dict[str, dict] — {book.name: result} for each active book
+            "asset_contributions" : pd.DataFrame | None — weighted combined per-asset
+                                     attribution, only if every active book's own result
+                                     includes it (see Book._compute_pnl's own docstring)
         """
         book_results = {}
 
@@ -70,11 +90,21 @@ class Allocator:
             book_results[book.name] = res
 
         combined_pnl = None
-        for res in book_results.values():
-            pnl = res["pnl"]
+        combined_contributions = None
+        for name, res in book_results.items():
+            weight = self.book_weights.get(name, 1.0)
+            pnl = res["pnl"] * weight
             combined_pnl = pnl.copy() if combined_pnl is None else combined_pnl.add(pnl, fill_value=0.0)
 
-        return {"pnl": combined_pnl, "book_results": book_results}
+            contributions = res.get("asset_contributions")
+            if contributions is not None:
+                weighted_contributions = contributions * weight
+                combined_contributions = (
+                    weighted_contributions.copy() if combined_contributions is None
+                    else combined_contributions.add(weighted_contributions, fill_value=0.0)
+                )
+
+        return {"pnl": combined_pnl, "book_results": book_results, "asset_contributions": combined_contributions}
 
     def _apply_regime(self, book):
         """Scale a book's alpha by its regime multiplier for every date in its

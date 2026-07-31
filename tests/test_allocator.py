@@ -135,3 +135,83 @@ def test_regime_lookup_defaults_to_neutral_for_unmentioned_book():
     allocator = Allocator([book], regime_lookup=regime_lookup)
     combined = allocator.run(returns_df=None)
     assert (combined["pnl"] == 1.0).all()  # unscaled, still active
+
+
+def test_book_weights_scale_each_books_pnl_before_combining():
+    dates_a = pd.date_range("2020-01-01", periods=5, freq="D")
+    dates_b = pd.date_range("2020-01-03", periods=5, freq="D")  # partial overlap
+    alpha_a = pd.DataFrame({"A": [1.0] * 5, "B": [1.0] * 5}, index=dates_a)
+    alpha_b = pd.DataFrame({"A": [2.0] * 5, "B": [2.0] * 5}, index=dates_b)
+
+    book_a = FakeBook("a", alpha_a, pnl_index=dates_a)
+    book_b = FakeBook("b", alpha_b, pnl_index=dates_b)
+
+    allocator = Allocator([book_a, book_b], book_weights={"a": 0.5, "b": 1.5})
+    combined = allocator.run(returns_df=None)
+
+    full_index = dates_a.union(dates_b)
+    expected = pd.Series(0.0, index=full_index)
+    expected.loc[dates_a] += 1.0 * 0.5
+    expected.loc[dates_b] += 2.0 * 1.5
+    pd.testing.assert_series_equal(combined["pnl"].sort_index(), expected.sort_index(), check_names=False)
+
+
+def test_book_weights_missing_name_defaults_to_one():
+    dates = pd.date_range("2020-01-01", periods=5, freq="D")
+    alpha = pd.DataFrame({"A": [1.0] * 5, "B": [1.0] * 5}, index=dates)
+    book = FakeBook("momentum", alpha, pnl_index=dates)
+
+    # book_weights mentions a different book entirely - "momentum" should stay at 1.0
+    allocator = Allocator([book], book_weights={"other_book": 5.0})
+    combined = allocator.run(returns_df=None)
+    assert (combined["pnl"] == 1.0).all()
+
+
+def test_book_weights_none_matches_prior_equal_sum_behavior():
+    book, returns_df = _real_book()
+    allocator_default = Allocator([book])
+    allocator_explicit_none = Allocator([book], book_weights=None)
+    pd.testing.assert_series_equal(
+        allocator_default.run(returns_df)["pnl"], allocator_explicit_none.run(returns_df)["pnl"],
+    )
+
+
+def test_asset_contributions_combined_with_same_weights_as_pnl():
+    dates = pd.date_range("2020-01-01", periods=5, freq="D")
+    assets = ["A", "B"]
+    contrib_a = pd.DataFrame({"A": [1.0] * 5, "B": [0.5] * 5}, index=dates)
+    contrib_b = pd.DataFrame({"A": [2.0] * 5, "B": [1.0] * 5}, index=dates)
+
+    class BookWithContributions:
+        def __init__(self, name, contributions, weight):
+            self.name = name
+            self.is_active = True
+            self._contributions = contributions
+            self._weight = weight  # only used to build a matching "pnl" for the assertion
+
+        def run(self, returns_df):
+            return {"pnl": self._contributions.sum(axis=1), "asset_contributions": self._contributions}
+
+    book_a = BookWithContributions("a", contrib_a, 1.0)
+    book_b = BookWithContributions("b", contrib_b, 1.0)
+    allocator = Allocator([book_a, book_b], book_weights={"a": 0.5, "b": 1.5})
+    combined = allocator.run(returns_df=None)
+
+    expected_contrib = contrib_a * 0.5 + contrib_b * 1.5
+    pd.testing.assert_frame_equal(combined["asset_contributions"].sort_index(), expected_contrib.sort_index())
+    # Invariant Book._compute_pnl's own docstring establishes per-Book must still hold combined:
+    # summing asset_contributions across columns reproduces the combined pnl exactly.
+    pd.testing.assert_series_equal(
+        combined["asset_contributions"].sum(axis=1).sort_index(), combined["pnl"].sort_index(), check_names=False,
+    )
+
+
+def test_asset_contributions_none_when_no_book_provides_them():
+    book, returns_df = _real_book()  # real Book.run() DOES include asset_contributions
+    # FakeBook's run() does not include "asset_contributions" at all
+    dates = pd.date_range("2020-01-01", periods=5, freq="D")
+    alpha = pd.DataFrame({"A": [1.0] * 5, "B": [1.0] * 5}, index=dates)
+    fake_book = FakeBook("fake", alpha, pnl_index=dates)
+    allocator = Allocator([fake_book])
+    combined = allocator.run(returns_df=None)
+    assert combined["asset_contributions"] is None
