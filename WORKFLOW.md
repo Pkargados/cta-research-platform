@@ -3692,6 +3692,301 @@ payoff of the Phase 1 refactor.
 
 ---
 
+## Phase 11 — Relative Value spreads & Seasonality 🟡 11b/11c built 2026-07-31, 11d not yet built
+
+Two new candidate signal families, discussed and scoped in detail 2026-07-31, in parallel
+with IBKR paper-trading setup. Neither has any code yet; this section is the design
+record a fresh session should build from. IBKR futures trading permission is in a
+30-day cooldown as of this date, which is the reason this became the priority while
+paper trading is blocked.
+
+### 11a. Three seasonality papers read — synthesis
+
+Read directly (not from memory), in this order, all in `references/`:
+
+1. **Blitz, van der Grient, Honarvar (2023), "Reversing the Trend of Short-Term
+   Reversal"** (`Reversing the trend of short term reversal.pdf`) — not about calendar
+   seasonality, but the session that led here started from this paper's short-term-
+   reversal enhancements. Relevant carry-over: its Section 4.1 finding that a signal's
+   own standalone alpha can be real but not cost-viable alone, only inside a composite —
+   the same caution now applied to seasonality below.
+2. **Li, Liu, Miao, Tse (2023), "Return Seasonality in Commodity Futures"**
+   (`Returns Seasonality in Commodity Futures.pdf`) — 26 commodities, 1970-2022,
+   replicates Keloharju et al. (2016) and Milonas (1991). **Half-month/month effects
+   were real 1970-1989 (9 commodities: Corn, Kansas Wheat, Soy Oil, Soybeans, Soymeal,
+   Wheat, Feeder Cattle, Lean Hogs, Silver) and have "almost completely disappeared"
+   since — zero significant commodities in 2010-2022.** Their same-calendar-month
+   cross-sectional strategy only worked in the 1990-1999 subperiod (t=2.99); every other
+   decade, including the most recent, is insignificant. **Most directly relevant
+   finding**: combining their seasonality signal with a 12-1 month momentum signal
+   produced a LOWER return than momentum alone in every subperiod tested — the
+   combination diluted, not enhanced, momentum. Their own explanation: seasonality and
+   momentum draw on different information sources, and layering one onto the other adds
+   noise rather than signal.
+3. **Keloharju, Linnainmaa, Nyberg (2014), "Common Factors in Return Seasonalities"**
+   (`Common Factors in Returns Seasonalities.pdf`) — the ORIGINAL paper Li et al. (2023)
+   replicates. Through 2011, seasonality was huge and pervasive (13%/year in individual
+   U.S. stocks), existed in commodities too (0.93%/month, t=1.93, marginally
+   significant, 24 commodities 1970-2011), and was **not** explained by known risk
+   factors (size, value, momentum, macro variables) even after controlling for them.
+   **Two findings that matter for the plan below**: (a) within U.S. equities, momentum
+   and seasonality sorts were *uncorrelated*, not conflicting (Table 1: momentum is the
+   one sort where same-month and other-month strategies both earn high, similar
+   returns) — a more optimistic picture than Li et al.'s combined-strategy result; (b)
+   adding a monthly seasonality factor to a market+size+value+momentum opportunity set
+   raised the max ex-post Sharpe from 1.04 to 1.67, a large diversification benefit, at
+   the time. KLN's own subperiod table (their Table 8 Panel B) already shows the
+   seasonality composite's t-value dropping to 1.75 in 2003-2011, the weakest of their
+   five subperiods — an early hint of the decay Li et al. later confirm more fully.
+
+**Net read**: seasonality in commodities was real and economically large through the
+1990s, has decayed sharply since (consistent with the "financialization" explanation
+both later papers point to — more capital, more information, more efficient markets),
+and the one direct test of combining it with a momentum-style signal came back negative.
+This sets a real, evidence-based expectation for 11c below: go in expecting a plausible
+null or negative result, not a surprise if that's what's found. It does **not** mean
+skip testing — Li et al.'s own combination methodology (a crude long/short meta-strategy
+built by summing separate position sets, not scaling one signal's own alpha) is
+different from what's proposed in 11c, and KLN's own correlation finding (momentum and
+seasonality are empirically distinct, not conflicting, in equities) argues the
+combination question is still open for a differently-constructed combination.
+
+### 11b. Standalone seasonality signal (single strategy portfolio) — plan
+
+- **Construction**: Milonas (1991)'s half-month effect — long the first half of the
+  month, flat/exit the second half — could not be sourced directly (not in `references/`
+  despite searching); use Li et al. (2023)'s own detailed replication of the
+  construction instead (their Eq. 2-3, `RRT_it = R̄_it / σ_it`, risk-return-tradeoff
+  normalized by within-half-month volatility, following their Section 2.2/4). Revisit
+  if the original Milonas paper is later sourced.
+- **Asset scope**: the 9 commodities Li et al. found genuine (if historically-confined)
+  half-month effects in — Corn, Kansas Wheat, Soybeans, Wheat, Feeder Cattle, Lean Hogs,
+  Silver are already in this project's universe; Soy Oil and Soymeal are not currently
+  pulled (same gap already logged for Soybean Crush, decision #3) — either add them or
+  scope this signal to the 7 already-available names first.
+- **New module**: `signals/seasonality.py`, pure function, no optimizer dependency
+  (Architecture section) — calendar-window logic only, zero look-ahead risk by
+  construction (the current date is always known).
+- **Evaluation**: own standalone Book (Single Strategy Portfolio pattern, same as Trend/
+  Carry), same train/validation/test discipline (CLAUDE.md Rule 1/2). Report honestly
+  even if null/negative — expected, per 11a, not a failure.
+
+**BUILT 2026-07-31 — plan corrected after reading both source papers directly, not
+just this section's own prior summary of them.** Before writing any code, Li et al.
+(2023) and Keloharju-Linnainmaa-Nyberg (2014) were read directly (not re-derived from
+the plan above, which turned out to itself be a misreading from the planning session
+that produced this section). Real finding: **RRT (`RRT_it = R̄_it/σ_it`, Eq. 2) is
+NOT a tradeable-strategy construction in either paper** — it is used exclusively as a
+descriptive statistic to test the half-month effect's statistical significance (Li et
+al.'s Table 5, a paired t-test), never fed into a backtested return series. Neither
+paper reports a half-month strategy's Sharpe or t-stat anywhere. The strategy Li et
+al. actually DO backtest with real numbers (Table 6: 0.66%-1.67% monthly, significant
+only 1990-1999) is a completely different, unrelated effect from the same paper —
+Keloharju et al.'s own **same-calendar-month** strategy (rank all commodities by
+trailing 5-20yr historical average return in that SAME calendar month, long top-3/
+short bottom-3, full universe, monthly rebalance) — not restricted to the 9-name
+half-month-effect subset at all.
+
+Per direct instruction after this was flagged and explained, **both** are built as
+parallel specs, no headline pick — `src/signals/seasonality.py`:
+- **half_month** — this project's OWN trading-rule interpretation of Milonas'
+  documented (but never paper-backtested) finding: vol-targeted ±1 direction (`+1`
+  first half of month / `-1` second half, the Lakonishok-Smidt boundary Li et al.
+  restate — day 1-15 vs. 16-end), `signals.transforms.vol_targeted_sign_signal`
+  (target_vol=0.40, same convention as momentum/crossover), daily rebalancing.
+  Scoped to the 7-name subset (Corn, KC_Wheat, Wheat, FeederCattle, LeanHogs, Silver,
+  Soybeans) as originally planned — explicitly labeled as NOT a reproduction of RRT
+  or of Milonas (1991) itself (unsourceable, per the plan above), since no published
+  trading-rule construction exists to reproduce.
+- **same_month** — Keloharju et al.'s actual construction: trailing 5-20yr same-
+  calendar-month average return (`same_month_average_return`, min 5/max 20 years,
+  strictly excluding the current occurrence), rank-weighted cross-sectionally
+  (`cross_sectional_rank`, sector-scoped — the same continuous-not-binary,
+  within-sector departure from the paper's own discrete top-3/bottom-3 full-cross-
+  section portfolio already made for carry/XSMOM/value), ADV-filtered liquid
+  universe, monthly rebalancing.
+
+**One real, non-cosmetic bug found and fixed before shipping, caught specifically
+because the FIRST result looked too good relative to this signal family's own
+evidence-based null/negative prior (Sharpe: same_month train/validation/test
++0.10/**+0.54**/+0.18 gross)** — exactly the situation CLAUDE.md's own discipline
+says to re-verify rather than accept. Root cause: `same_month_average_return`'s
+score for calendar month m (e.g. January) only needs data through the END of the
+PRIOR month (December) but is naturally labeled at January's own month-end row.
+Every other cross-sectional signal in this project (momentum, carry, XSMOM) wants
+exactly that labeling, because `backtest.engine`'s universal month-lag convention
+(form at month-end t, trade month t+1) is built for a signal whose formation and
+target periods are naturally ADJACENT, different months. A same-calendar-month
+effect's formation and target are the SAME month by construction, so left as
+originally labeled, the standard lag would trade FEBRUARY on "how good has January
+historically been" — a full calendar month of misalignment, not a subtle one. Fixed
+with a `.shift(-1)` on the raw monthly score (moves the January-effect value onto
+December's row) before the daily reindex/ffill, so the same universal t→t+1 lag
+lands it on the month it actually describes. A dedicated regression test
+(`test_same_month_signal_decembers_row_reflects_januarys_history_not_decembers`,
+`tests/test_seasonality.py`) pins this exactly: two synthetic assets with opposite
+December-vs-January historical performance, confirming December's row rank-orders
+by January history, not December's own.
+
+**Result after the fix, reported honestly, not tuned back toward the pre-fix
+story**: same_month train/validation/test Sharpe **+0.10/-1.04/+0.18 gross,
+-0.02/-1.15/+0.06 net** — turnover ~7.4x annualized (net ≈ gross). Sharply negative
+in validation (spans the 2020 COVID shock), the same pattern XSMOM/carry/value all
+show there; weak-positive-to-flat in train/test. Genuinely mixed/weak, consistent
+with Li et al.'s own finding that the same-calendar-month effect decayed sharply
+after 1990 — not a clean win, not a disaster either. half_month: train/validation/
+test Sharpe **-0.19/-0.79/+0.55 gross, -0.91/-1.31/-0.08 net** — turnover ~166x
+annualized (the highest of any family in this project, similar in kind to short-term
+reversal's own daily-flip-driven turnover problem), deeply negative net-of-cost in
+every period but one. Both null/negative-to-mixed results are the expected outcome
+per 11a's synthesis, not a failure — reported as found (CLAUDE.md Rule 1/2). 12 new
+tests (`tests/test_seasonality.py`, 283 passing project-wide). Dashboard page built
+(`23_seasonality_performance.py`, asset/spec/gross-net selectors, half_month reads
+N/A outside its 7-name scope same as XSMOM's page reads N/A for Copper), verified
+exception-free via `streamlit.testing.v1.AppTest` across all 24 pages.
+
+### 11c. Seasonality as a TSMOM modifier — plan
+
+- **Architecture decision (already made, not to re-litigate)**: this is NOT a
+  `regime_lookup` case — `src/regime/interface.py`/`Allocator._apply_regime` operate at
+  the Book level (one multiplier for the whole Trend Book), but this needs per-asset
+  granularity (boost Natural Gas's winter conviction without touching FX/equity-index
+  TSMOM in the same Book). Build as a pure **alpha-construction-time modifier** applied
+  to `signals.momentum.tsmom_signal`'s own output, upstream of `Book` entirely — same
+  category as vol-scaling, not a new portfolio-level regime layer.
+- **Mechanism (already decided)**: a **continuous** seasonal weight, not a binary gate.
+  Direct precedent against a gate already exists in this project: `tsmom_deadband` (the
+  Trend Book bake-off's hard on/off conviction filter) had the best train Sharpe of all
+  7 flavors but the *worst* validation Sharpe, and higher turnover than continuously-
+  resized alternatives, not lower.
+- **Candidate assets and windows (fixed now, before any backtest, per Rule 1)** —
+  confidence levels stated honestly, not overclaimed:
+
+  | Asset | Driver | High-conviction window | Confidence |
+  |---|---|---|---|
+  | Natural Gas | Winter heating demand | Nov-Mar | High |
+  | HeatingOil | Winter heating demand | Oct-Feb | High |
+  | RBOB | Summer driving season + spring blend-switchover vol | Apr-Sep | High |
+  | Corn | Growing-season weather risk (July pollination) | Jun-Aug | Medium-high |
+  | Soybeans | Growing-season weather risk | Jun-Aug | Medium-high |
+  | Wheat / KC_Wheat | Winter-wheat dormancy-through-harvest weather risk | Mar-Jun | Medium |
+  | LiveCattle / FeederCattle / LeanHogs | Grilling-season demand, marketing cycles | — | Lower — needs a literature check before committing to exact dates |
+
+  Explicitly **not** applied to FX, Rates, Equity indices, or precious/industrial
+  metals — no physical seasonal demand driver to justify it there.
+- **Expectation**: per 11a, a real chance this hurts rather than helps, matching Li et
+  al.'s direct finding. Test once, report honestly either way — do not iterate on window
+  boundaries after seeing a negative result (that would be exactly the overfitting
+  Phase 7's CPCV work already found real risk in).
+
+**BUILT 2026-07-31, per direct instruction, as an 8th Trend Book flavor** (not a
+separate standalone signal) — implemented exactly as planned above, no deviation.
+`signals.seasonality.seasonal_weight_multiplier` + `tsmom_seasonal_signal`: a
+raised-cosine (Hann) taper, continuously differentiable, `1.0` (unchanged) at a
+window's edges and everywhere outside it, rising smoothly to `1 + amplitude` at
+the window's center — `amplitude = 0.5` fixed a priori (a moderate, round-number
++50% max conviction boost), not tuned from any result. Year-end-wrapping windows
+(Natural Gas Nov-Mar, HeatingOil Oct-Feb) handled via circular day-of-year
+distance, verified directly (Natural Gas's center lands on Jan 15-16, exactly the
+window's midpoint). Sign-preserving by construction (a pure magnitude scale on
+TSMOM's own already-signed position, never flips or zeroes it) — 8 new tests,
+`tests/test_seasonality.py` (296 passing project-wide).
+
+Added to `research/single_strategy_portfolios.py`'s `build_trend_flavors()` as
+`tsmom_seasonal`, run through the exact same validation-selected, test-touched-
+once bake-off as the other 7 flavors — on the COMPRESSED (redundancy-removed)
+universe specifically, since that's the adopted Trend construction (decision
+#13). **Result: tsmom_seasonal narrowly wins the bake-off on validation Sharpe
+(0.863 vs. tsmom_alone's 0.859 — a statistical coin-flip, not a clear margin),
+but the two are essentially indistinguishable under the final GARCH vol-targeted
+Book treatment**, checked directly head-to-head:
+
+| | Train | Validation | Test | Turnover | Max DD |
+|---|---|---|---|---|---|
+| tsmom_alone | 0.216 | 0.851 | 1.600 | 0.623 | -15.0% |
+| tsmom_seasonal | 0.187 | 0.860 | **1.5995** | 0.630 | -15.8% |
+
+Test Sharpe differs by 0.0005 — noise, not a real effect either direction.
+Train is slightly worse for the seasonal variant, validation slightly better,
+turnover/drawdown essentially unchanged. **Conclusion: this specific continuous
+seasonal-conviction construction makes no material difference to Trend's own
+performance, in either direction** — not the clear "hurts" result 11a's own
+synthesis anticipated (Li et al.'s finding that seasonality+momentum combined
+underperforms momentum alone), but also not a genuine improvement; the modifier
+is small enough in aggregate effect (up to +50% for ~2-6 months/year on 7 of 31
+Trend-universe assets, inside an already gross-exposure-normalized, pooled Book)
+that it washes out to statistical noise at the Book level. **Not adopted** —
+`TREND_FLAVOR` stays `"tsmom_alone"` in `single_strategy_portfolios.py`/
+`dashboard/_single_strategy_pipeline.py` (re-verified live on page 18: test
+Sharpe still exactly 1.600, unaffected) — a coin-flip bake-off margin isn't a
+basis to change the live mandate. Reported as found (Rule 1/2), not a failure.
+
+### 11d. Relative Value sleeve — plan
+
+**Seven pairs** (decided 2026-07-31): WTI-Brent, Gold-Silver, Crack Spread (3-leg: crude
++ RBOB + HeatingOil), Corn-Wheat, Platinum-Palladium, RBOB-HeatingOil, Wheat-KC_Wheat.
+`Time_Series_Models.ipynb`'s own existing rolling-window Engle-Granger foundation already
+tested Corn/Wheat, Gold/Silver, Brent/WTI (Brent/WTI the strongest candidate, 45% of
+windows cointegrated) — this list extends, not replaces, that prior work.
+
+**Data**: confirmed 2026-07-31 — every leg (WTI, Brent, Gold, Silver, Corn, Wheat,
+KC_Wheat, Platinum, Palladium, RBOB, HeatingOil) is already in `Data/continuous_futures.
+parquet`, refreshed daily for free by the existing `yfinance` job. **No new Databento
+pull needed for this list** — Databento's spread data is specifically the within-
+commodity calendar-spread/butterfly data carry needs (e.g. WTI Z26 vs WTI H27), not
+cross-commodity outright pairs like these.
+
+**Construction method per pair — three groups, not one blanket choice**:
+- **Ratio / fixed beta=1 in log-price space** (same commodity or market-convention
+  ratio; no statistical estimation): WTI-Brent (same commodity/units, industry already
+  quotes it as a dollar spread), Gold-Silver (the "gold-silver ratio" *is* the market
+  convention), Platinum-Palladium (same units, both PGMs, a real quoted ratio in that
+  market), Wheat-KC_Wheat (literally the same commodity, different region/protein).
+- **Fixed known economic ratio, not statistical at all**: Crack spread — 3:2:1 (or a
+  simplified 2:1 crude:gasoline), driven by real refinery conversion chemistry. Decide
+  WTI vs. Brent as the crude leg (or build both) before implementation.
+- **Estimated, time-varying beta (Kalman filter, bake off against static/rolling OLS —
+  never adopt static full-sample OLS, that's the exact look-ahead bug CLAUDE.md Hard
+  Rule 2 already documents)**: Corn-Wheat — different crops, no natural 1:1
+  equivalence, feed-substitution economics don't imply equal bushel value.
+  RBOB-HeatingOil is ambiguous (same units, but no obvious 1:1 fundamental
+  equivalence) — bake off ratio vs. Kalman rather than assume either.
+- Ratio trading, explained for the build: trade `log(A) - log(B)` directly as the
+  mean-reverting object (implicitly a fixed beta of 1), instead of estimating a hedge
+  ratio via regression — appropriate specifically when there's a structural reason the
+  two legs should track 1:1 in log terms.
+
+**Book architecture (already decided)**: **one pooled "Relative Value" Book**, not one
+Book per spread. Matches how Carry and XSMOM are already built — cross-sectional signals
+pooled into one Book, not one Book per asset. Reasoning: RV/stat-arb edge specifically
+comes from diversifying across many small, low-correlation spread bets; giving each
+spread its own top-level Allocator slot would make a single pair trade compete for
+capital against a 41-asset Trend program and a 33-asset Carry program as if it were the
+same scale of diversified bet, which it isn't. The "asset" unit in this Book's
+`alpha_df` is the *spread*, not a tradable outright — a downstream step must translate
+each spread's Book-level weight into actual leg-level (WTI/Brent/RBOB/etc.) contract
+counts, and that leg exposure will double up with Trend/Carry's own existing positions
+in the same names (WTI, Brent, Gold, Corn, Wheat all already carry Trend and Carry
+positions) — total portfolio risk needs to net across all three sleeves at the asset
+level, not just sum sleeve-level PnLs blindly, the same caveat the Multi-Strategy
+page's attribution caption already flags for Trend/Carry today.
+
+**Shared construction, per Rule 6**: one generic, parameterized signal function (legs +
+hedge weights → z-scored spread signal), reused across all 7 pairs — not copy-pasted
+per pair, since crack spread is a 3-leg spread and the rest are 2-leg pairs but the
+z-scoring/signal-generation mechanics after the spread series is built are the same.
+
+**Validation discipline**: bake off each pair standalone first (own train/validation/
+test, same discipline as the Trend Book's own flavor bake-off) before deciding whether
+pooling them into one RV Book actually adds value over any single pair alone — do not
+assume pooling helps just because it's the architecturally-preferred end state.
+
+**Open, not yet decided**: the actual z-score entry/exit rule (e.g. continuous vol-scaled
+sizing, preferred per Rule 5's own "binary underperforms continuous" finding, vs. a
+threshold entry/exit band) — needs deciding during implementation, not before.
+
+---
+
 ## Integration point: port congestion signal
 
 Not a phase with its own number — this is a cross-cutting note. If/when the Port
@@ -3719,6 +4014,30 @@ port congestion project" section for the current (deferred) status.
 | 10 | "Single Strategy Portfolios" bake-off (`next_steps.md` Phase 4/5 — the user's own name for this phase) — which Trend Book and Carry Book construction to actually run with | Phase 4/5, before Phase 6 standardization | **Built and run 2026-07-29** (`research/single_strategy_portfolios.py`, supersedes the earlier `two_book_mandate.py` first pass). Two validation-selected bake-offs, test touched once for each winner — deliberately NOT the same multiple-comparisons situation as `tune_all_books.py`'s Bonferroni/FDR-gated grid search (5-7 economically distinct constructions per Book here, not a numerical grid over 19 Books — the earlier finding doesn't transfer, no correction applied). Weekly Book rebalancing (not `research/portfolio.py`'s original monthly), reusing the already-established precedent from `value_momentum_combine.py`/`tune_book_hyperparameters.py` to get enough validation observations (~71-94 vs. ~16-21 monthly) — `TRAIN_END`/`VALIDATION_END` themselves untouched. Two new `signals/combine.py` functions (`risk_parity_combine`, `confirmation_filter_combine`) and one new `signals/transforms.py` function (`vol_targeted_sign_signal_with_deadband` — a genuine flatten-when-low-conviction construction, answering the direct question "can the Trend Book NOT always be in the market": yes, mechanically, via a per-asset trailing-quantile threshold on trend strength). 10 new tests (244 total passing). **Trend Book: `tsmom_alone` wins decisively** (validation Sharpe 0.594 vs. 0.115-0.510 for every blended flavor; test 1.324, touched once — not comparable to momentum.py's own documented 0.402 test Sharpe, different methodology: Book/optimizer machinery + weekly annualization, not the plain standalone path). None of equal-weight/fixed-tilt/IC-weighted/risk-parity/confirmation-filter beat running TSMOM alone on validation — consistent with the earlier correlation finding (decision #8) that crossover doesn't diversify TSMOM, it mostly just dilutes it. **`tsmom_deadband` (the "not constantly trading" construction) is a real, honest cautionary result**: highest TRAIN Sharpe of all 7 flavors (0.424) but by far the WORST validation Sharpe (-0.440, deeply negative) — a textbook in-sample-looks-great/out-of-sample-falls-apart pattern; a conviction filter that requires trend strength to clear its own trailing median before trading ends up gating out of the market during COVID's fast, ambiguous whipsaw, then re-entering late. Its turnover is also the HIGHEST of the 7 (0.84 vs. 0.59-0.70 for the always-in flavors) — a non-obvious but real finding: flipping a position on/off between zero and full size generates MORE turnover than continuously resizing an always-held position, undercutting the "trades less -> costs less" intuition. **Recommendation: reject `tsmom_deadband` for now** — mechanically possible, but the evidence argues against it, not for it; `tsmom_alone` (i.e. no crossover blend at all) is the selected Trend Book. **Carry Book: `carry_timing_zero` wins** (validation -0.938, best of 3 evaluable flavors — `carry1_12` excluded outright, only 18 valid weekly rebalance dates after its 12-month-smoothing warmup, below the 20-date floor; `carry1m` narrowly misses too, n=19). All evaluable carry flavors are negative on validation, consistent with carry's already-documented COVID-era underperformance. `carry_timing_zero` test Sharpe 0.374 (touched once). **Combined two-Book Allocator (equal Book-risk baseline)**: train -0.132, validation -0.499 (dragged down by Carry's weak validation despite Trend's strong one), test 0.930 (n=175). 95% VaR -3.3%, ES -5.0% (weekly). Selected: Trend = `tsmom_alone`, Carry = `carry_timing_zero`. |
 | 11 | `Book`'s vol-targeting estimator (`_apply_vol_target`) — EWMA-of-realized-PnL was inherited from the retired stat-arb engine, never tested against alternatives | Before the hyperparameter-tuning grid (decision path following #10) | **Tested and decided 2026-07-29.** Direct follow-up question to the asset-level 3-way vol-estimator comparison (decision context: `research/vol_estimator_comparison.py`, where EWMA came in last) — structurally a DIFFERENT forecasting target (a Book's own aggregate realized-PnL vol, not an asset's price vol), so that result doesn't mechanically transfer, but GJR-GARCH doesn't care what 1D return series it's fed, so there's no structural reason not to test it here too. `research/book_vol_targeting_estimator.py` (new, cached to `Data/research/book_vol_targeting_{garch,series}.parquet` + `_comparison.csv`, same never-recomputed-live convention as the asset-level GARCH cache): EWMA vs. GJR-GARCH on the two selected Books' (`tsmom_alone`, `carry_timing_zero`) own DAILY-marked PnL (`portfolio.book.daily_mark_pnl`), QLIKE/MSE against forward-realized variance, TRAIN only. First pass returned all-NaN for GARCH — a real bug, not a null result: `daily_mark_pnl`'s NaN-row `.sum(skipna=True)` silently returns 0.0 (not NaN) for the ~900 days before each Book's first real weight, and GARCH's own zero-variance guard correctly rejected that degenerate warmup outright (EWMA would NOT have caught this — it would have just silently understated vol for years, a worse failure mode). Fixed by trimming each Book's PnL to its own first real rebalance date before comparing. **Result after the fix: GJR-GARCH wins decisively, not marginally** — QLIKE cut ~60-70% vs. EWMA at every horizon (21d/63d), both Books (Trend: 0.689→0.207, 0.679→0.147; Carry: 0.615→0.213, 0.404→0.149). **Decision: `Book.vol_estimator="garch"` adopted for the Single Strategy Portfolios.** Implemented as an opt-in constructor param on `Book` (`src/portfolio/book.py`), default `"ewma"` unchanged — every other already-published Book result in this project (the 6-Book pilot, all 19-20 tuned Books, value/XSMOM mix-vs-integrate, etc.) is untouched, not silently altered. GARCH path: refit every `garch_refit_freq` periods (default 20) using ONLY realized PnL through the previous period, `filter_gjr_garch` forward with fixed params between refits (`data.garch_volatility`'s own validated primitives reused directly, not reimplemented — O(T²) over the full walk since `filter_gjr_garch` re-runs its cumulative recursion each call, a deliberate correctness-over-speed tradeoff, consistent with this project's existing "GARCH is slow by construction, offline use only" convention). Falls back to the EWMA recursion during GARCH's own warmup (`garch_min_warmup=104` periods, ~2 years weekly) and on any per-period fit/filter failure. **One disclosed caveat, not smoothed over**: the validated comparison used DAILY-marked PnL; `Book`'s actual internal vol-targeting still operates at each Book's native (weekly) rebalance cadence — the estimator-class advantage is assumed, not separately re-proven, to carry over to that granularity (documented in both the `vol_estimator` docstring and the dashboard page). 2 new tests (`test_book.py`, 246 total passing). **Re-run with GARCH**: Trend train 0.295→0.321, test 1.324→1.356 (slightly better); Carry train -0.344→-0.368, test 0.374→0.293 (slightly worse); combined test 0.930→0.869. Validation Sharpe essentially unchanged for both Books (0.594, -0.938) — a modest, plausible-magnitude shift either direction, not a dramatic overnight flip, consistent with GARCH and EWMA both being reasonable vol-targeting mechanisms on average (the QLIKE improvement is about forecast RESPONSIVENESS to regime shifts, not a large average-leverage change). Dashboard: new "Book-Level Vol-Targeting" section on `06_volatility_estimators.py`, reads the cached comparison table + vol-forecast-over-time chart, verified exception-free via `streamlit.testing.v1.AppTest` (18/18 pages). Only GARCH's own parameter (`garch_refit_freq`) belongs in the later hyperparameter grid — `ewma_halflife` is moot for these two Books now. |
 | 12 | How to combine Trend and Carry sleeves in the Multi-Strategy Portfolio — `Allocator.run()` just sums each Book's PnL (`.add(fill_value=0.0)`), no risk-weighting at all | Multi-Strategy Portfolio dashboard page, before wiring any weighting scheme into shared/live code | **Built, validated on real data, and wired into `Allocator`/the dashboard, all 2026-07-29-30.** Flagged after the naive Allocator sum visibly let Carry (weak/negative) drag down Trend (strong): equal-PnL-sum has no notion of risk contribution at all, unlike real CTA multi-strategy practice (combine sleeves by RISK, not return, specifically to avoid overfitting relative sleeve weights on ~140-250 weekly observations — far too little history for a return-based optimization to be trustworthy). Discussed and decided to build a general n-sleeve equal-risk-contribution (ERC) solver, not the 2-sleeve closed form (`w_1/w_2 = sigma_2/sigma_1`, correlation-independent) — more sleeves (Relative Value, etc.) are planned, and the n=2 closed form doesn't simplify the n>=3 machinery needed later. **`src/portfolio/risk_parity.py`** (new): `risk_contributions(weights, cov)` (exact Euler decomposition, sums to portfolio vol by construction) and `risk_parity_weights(cov, risk_budgets=None)` (Spinu 2013 / Bruder-Roncalli convex log-barrier reformulation — `minimize 0.5*w'Sigma*w - sum(budget_i*log(w_i))`, L-BFGS-B — not the naive non-convex "minimize squared RC-difference" objective, which can converge to different local optima depending on start point). One real fix during verification: L-BFGS-B's default `ftol`/`gtol` left risk contributions off by ~6e-5 relative for a 3-sleeve synthetic check — cheap to tighten (`ftol=1e-15, gtol=1e-12`) for a problem this small and convex, brought the mismatch down to ~1e-12. Verified numerically before any test was written: 2-sleeve solution matches the closed-form inverse-vol ratio across rho in [-0.5, 0.8]; n=3 gives exactly equal risk contributions off a non-diagonal Sigma; unequal budgets ([0.6, 0.3, 0.1]) reproduce those exact risk-contribution shares. 8 new tests, `tests/test_risk_parity.py`. **`src/portfolio/sleeve_covariance.py`** (new): takes a (T x N) sleeve-PnL DataFrame, returns ONE current covariance matrix (not a full rebalance-dated history like `portfolio.covariance.build_cov_dict` — the risk-parity solver only ever needs today's Sigma). Two estimators: `rolling_covariance`/`ewma_covariance` (plain pandas `.cov()`/`.ewm().cov()`, the cheap baseline) and `dcc_garch_covariance` (Engle 2002 DCC-GARCH, reusing `research/trend_correlation.py`'s exact two-stage fit call — `dcc_garch.garch.gjr_garch.fit_multivariate_gjr` then `dcc_garch.dcc.optimizer.fit`, the already-validated local sibling package). One unit gotcha caught and fixed before it could silently corrupt every DCC-derived weight: `dcc_garch`'s own GJR-GARCH scales returns x100 internally (documented in that package's own `gjr_garch.py`), so its `H` output (the conditional covariance path) comes back in (%)^2 units, not decimal-return units — divided by 100^2 before returning, confirmed by checking the DCC covariance landed within the same order of magnitude as the plain sample covariance on synthetic correlated data (a dedicated regression test for exactly this, `test_dcc_garch_covariance_same_order_of_magnitude_as_simple_sample_covariance`). The `dcc_garch` import is deferred to inside the function (not module load time), same discipline as `data.garch_volatility`'s own lazy import, since it's a private local sibling repo the public dashboard environment won't have — the two pandas estimators keep working regardless. 10 new tests, `tests/test_sleeve_covariance.py` (3 DCC-specific tests skip cleanly, not fail, if the sibling repo isn't present). **`research/sleeve_risk_parity.py`** (new): reuses `single_strategy_portfolios.py`'s exact winning constructions (both Books GARCH vol-targeted, decisions #10/#11) called directly outside Streamlit — same pattern `research/book_vol_targeting_estimator.py` already established. Risk-parity weights fit ONCE on TRAIN sleeve PnL only (CLAUDE.md Rule 1/2 — the weight choice itself must not see validation/test before being fixed), then applied as a FIXED static weight across all three periods; walk-forward refitting is flagged as a natural next step, not built here. **Result, real numbers, not fabricated**: all three covariance estimators agree closely on the split (rolling 58.7/41.3, EWMA-halflife-87 57.5/42.5, DCC-GARCH 59.3/40.7, Trend/Carry) — reassuring convergence given the small-sample DCC concern raised at the outset. Risk parity improves combined Sharpe vs. naive in every period, by every estimator: train -0.136 (naive) → -0.05 to -0.07; validation -0.512 → -0.32 to -0.36; test 0.869 → 0.98 to 1.00. Combined annualized vol also drops slightly in every period (e.g. test 0.167 → 0.157), consistent with a genuine diversification-weighting effect, not just a return-chasing tilt (the fitted weight, ~59% Trend / ~41% Carry, was decided from TRAIN alone, before validation/test's stronger Trend performance could have leaked into the choice). **Wired into `Allocator` and the Multi-Strategy dashboard page the same day, per direct instruction once the real-data validation above landed.** `Allocator.__init__` gained an optional `book_weights: dict[str, float]` param — each active book's own "pnl" (and "asset_contributions", if present) is scaled by its weight before the existing `.add(fill_value=0.0)` combination; a book not named in `book_weights` defaults to 1.0, so `book_weights=None` (the default) is byte-for-byte identical to every existing caller's prior behavior (`Allocator`'s own architecture doc now notes this is a STATIC weight decided by the caller — no covariance-estimation logic added to the Allocator itself, same boundary `regime_lookup` already established). 5 new tests, `tests/test_allocator.py` (weighted-combination, missing-name-defaults-to-1.0, `book_weights=None` parity, weighted `asset_contributions`, and the Book-doesn't-provide-attribution case) — 271 tests passing project-wide. `dashboard/_single_strategy_pipeline.py` gained `compute_risk_parity_weights(estimator)` (`st.cache_data`, not `st.cache_resource` — returns plain floats, so the estimator toggle doesn't re-run the expensive Book construction `load_and_run` caches), reusing the exact same TRAIN-only-fit, rescaled-by-n_sleeves=2 construction `research/sleeve_risk_parity.py` already validated. `dashboard/pages/20_multi_strategy_portfolio.py` gained a "Combination Method" radio (Naive / Risk Parity) plus a covariance-estimator sub-radio (Rolling / EWMA / DCC-GARCH) when Risk Parity is selected — the combined equity curve, per-Book attribution, VaR/ES, and key-takeaway captions all recompute against whichever method is selected, not just a headline number (verified live: selecting DCC-GARCH reproduces the exact 59.3%/40.7% split `sleeve_risk_parity.py` found). Verified exception-free via `streamlit.testing.v1.AppTest` across all 22 pages AND across all three combination-method/estimator branches on page 20 specifically (naive, risk-parity-rolling, risk-parity-DCC-GARCH). |
+| 13 | `next_steps.md` Phase 2 universe compression (layers B/C — economic redundancy, economic coverage) — never actually applied to any Book, checked directly against `research/single_strategy_portfolios.py`'s own code before starting | Raised directly by the user after the Phase 11b handoff; applied to same_month first, then Trend/Carry, per direct instruction | **Built and run 2026-07-31.** `research/universe_compression.py` (new): train-period (≤`TRAIN_END`) pairwise return correlation within each `data.sectors.SECTORS` cluster, for the ADV-filtered 36-asset universe — a performance-blind, structural analysis (CLAUDE.md Rule 1's own concern, one level up: a portfolio-level universe edit must not be justified by having seen any Book's backtest result). **Rule applied** (judgment-informed, not a mechanical cutoff): ≥0.95 train correlation ("near-duplicate") → drop the less-liquid twin (by ADV, not Sharpe) for EVERY family; 0.85-0.95 ("redundant for a directional bet only") → drop for **trend** (a per-asset time-series signal — two nearly-identical directional bets multiply exposure to one factor) but KEEP for **rank** (same_month, carry — cross-sectional rank signals, where a highly-correlated member still contributes its own seasonal/carry estimate; 11c's own seasonal-window table already treats WTI/Brent/RBOB/HeatingOil as economically distinct despite high price correlation); <0.85 → no action. **Real numbers**: US_30Y/UltraBond 0.98, SP500/Dow 0.97, US_5Y/US_10Y 0.965 (all near-duplicate — the third of these was missed in the first manual pass and only surfaced by running the actual script and applying the stated rule consistently, not selectively); Wheat/KC_Wheat 0.93, WTI/Brent 0.92 (directional-only); Gold/Silver 0.80, LiveCattle/FeederCattle 0.81 (below the bar, no action). ADV tie-breaks: WTI ~11x Brent's, Wheat ~2.4x KC_Wheat's, US_10Y ~1.4x US_5Y's. **`data.universe.compress_for_family(included, family)`** (new, `CLUSTER_REDUNDANT_ALL = ["Dow", "UltraBond", "US_5Y"]`, `CLUSTER_REDUNDANT_TREND_ONLY = ["Brent", "KC_Wheat"]`) — same documented-constant pattern as `ICE_SOFTS_DATA_BLOCKED`. Coverage (C) check passes for both families (every sector retains ≥2 members: Energy 4, EquityIndex 3, Rates 3, Grains 3). **Separately discovered, unrelated finding, not fixed here**: Sugar and Cocoa have zero valid return data before `TRAIN_END` — Softs contributes nothing to any train-period redundancy read, a genuine data-coverage gap distinct from the redundancy question. 15 new tests (`tests/test_universe.py`, 288 passing project-wide). **Applied to same_month** (`research/seasonality.py`'s `load_and_prepare_data(family=None)` — `None` preserves prior behavior exactly, `family="rank"` applies the compression; half_month dropped from further work per the same session's decision — deeply negative net-of-cost, not a paper-validated construction to begin with, code/tests/dashboard page kept as historical record only) — new `research/seasonality_single_strategy.py` reuses `single_strategy_portfolios.py`'s own `build_book()` directly (weekly cadence, GARCH vol-targeting, no bake-off needed — same_month has one construction, like XSMOM/Value). **Result: train 0.123, validation -1.269, test -0.353, turnover 1.26, max DD -56.8%** — weaker than the standalone plain-Sharpe read (train +0.10/validation -1.04/test +0.18 gross), looking more like Value/XSMOM's already-parked profile than Trend/Carry's, consistent with the expectation set going in. **Applied to Trend/Carry** — `single_strategy_portfolios.py` gained a `run_pipeline()` extraction (Rule 6) so the existing UNCOMPRESSED path (byte-for-byte reproducing decision #10/#11/#12's published numbers) and a new COMPRESSED path run side by side in one script, no silent replacement; `load_and_prepare_data()` itself is untouched (zero risk to `dashboard/_single_strategy_pipeline.py`, confirmed via `streamlit.testing.v1.AppTest` across all 24 pages — pages 18-20 unaffected). **Trend: a clean, genuine improvement** — test Sharpe 1.356 → 1.600, turnover 0.78x → 0.62x (both better, with LOWER turnover — consistent with removing genuinely redundant, correlated directional bets, not a fluke). **Carry: a real methodological complication, not a clean result** — compression changed `carry1m`'s valid-rebalance-date count from 19 (below the bake-off's own 20-date floor, excluded in the uncompressed run) to 21 (barely included), flipping the bake-off's winner from `carry_timing_zero` to `carry1m` on a knife-edge validation Sharpe of +0.039 (n=21) — and `carry1m`'s test Sharpe is a wild **-2.035 on just 26 observations**. This is a selection-artifact red flag (a marginal data-sufficiency threshold flipping the winner, not genuine outperformance) — reported as found, NOT adopted, and NOT to be read as "compression hurt Carry." Combined Allocator test Sharpe improved (0.869 → 1.077) but is entangled with Carry's fragile pick and shouldn't be read at face value either. **Decided, same day, per direct instruction after discussion**: Trend's compressed universe ADOPTED into the live Two-Book mandate — `dashboard/_single_strategy_pipeline.py`'s `load_and_run()` now builds Trend flavors on `compress_for_family(included, "trend")`, verified live on page 18 (test Sharpe 1.600, matching the research script exactly). Carry REVERTED to the uncompressed, originally-published construction (`carry_timing_zero`) — explicitly NOT mechanically re-picking whichever flavor the compressed bake-off happened to select, since that flavor (`carry1m`) was a knife-edge, unstable pick (a marginal data-sufficiency threshold effect, not genuine outperformance), not a real improvement to adopt. `research/single_strategy_portfolios.py` gained a `run_pipeline()` return of the constructed Book objects (not just summary stats) specifically so `main()` could build this exact ADOPTED mixed combination (Trend from the compressed run, Carry from the uncompressed run) and report it explicitly, rather than only ever showing the two "pure" (all-compressed / all-uncompressed) variants. **Adopted combined Allocator result: train -0.112, validation -0.435, test 0.994** (n=175, weekly) — better than the original uncompressed combined (test 0.869) and more honest than the fully-compressed number (1.077, which was inflated by Carry's unstable pick). 95% VaR -0.029, ES -0.043 (weekly). Verified via `pytest tests/` (288 passing) and `streamlit.testing.v1.AppTest` across all 24 pages, plus a direct spot-check confirming page 18 renders the new adopted Trend numbers live.
+
+**Same-day follow-up, per direct instruction: a hypothesis-driven (not performance-driven) universe restriction for same_month.** The user's own framing, addressed directly: this is NOT the CLAUDE.md Rule 1 look-ahead pattern (never edit the universe after observing backtest performance) — the restriction is fixed from a documented PHYSICAL/ECONOMIC seasonal-demand theory (Phase 11c's own conviction table, built and logged before any of this session's backtests) BEFORE looking at same_month's performance on these specific names, the same discipline already used for `SEASONALITY_HALF_MONTH_ASSETS` and 11c's own asset scope. `signals.seasonality.SEASONALITY_ECONOMIC_DRIVER_ASSETS` (new) = Natural Gas, HeatingOil, RBOB, Corn, Soybeans, Wheat, KC_Wheat — 11c's table restricted to Medium confidence or higher (LiveCattle/FeederCattle/LeanHogs excluded — 11c's own table already flags their windows as needing a literature check never completed). `research/seasonality_economic_universe.py` (new): plain-Sharpe comparison (matching how same_month's full-universe result was first read, before any Book treatment), same_month on the full rank-compressed universe (32 assets) vs. this 7-name economic-driver subset. **Result: genuinely mixed, not a clean win, but a real reshaping of the risk profile** — train got WORSE (0.050→-0.202 gross), but validation flipped from deeply negative to near-flat (-1.015→-0.088 gross — the 2020 COVID window that crushes nearly every cross-sectional family in this project), and test improved, especially net-of-cost (0.036→0.137 net — nearly 4x). Turnover nearly identical (7.38x vs 7.56x), so this isn't a turnover-cost artifact. **Escalated to the weekly/GARCH Single Strategy Portfolio treatment same day, per direct instruction.** `research/seasonality_single_strategy.py` extended to run both universes side by side (FULL rank-compressed vs. ECONOMIC-DRIVER, no headline pick), reusing `build_book()` unchanged. **Result: a much more pronounced version of the plain-Sharpe finding, not just a confirmation of the same small effect** — train **0.123→-0.162** (worse, consistent with the plain-Sharpe read), validation **-1.269→-0.389** (still negative but far less catastrophic), test **-0.353→+0.454** (a genuine sign flip), turnover **1.259→0.158** (~8x lower — only 7 correlated names in 2 sectors, weekly-marked on a slow monthly-cadence signal), max DD **-56.8%→-31.7%** (nearly halved). Every single metric improved except train. This is a genuinely promising profile, not clearly "park it" like Value/XSMOM — train and validation are still negative, so it isn't a clean all-periods win, but the magnitude and consistency of improvement across Sharpe/turnover/drawdown when restricting to the physically-motivated 7-name universe is a real signal that the hypothesis-driven restriction is doing real work, not noise. **Same-day follow-up, per direct instruction: three multi-strategy combinations, before building any new dashboard page.** `single_strategy_portfolios.py` gained `build_adopted_books()` (returns the already-decided Trend/Carry Book objects directly, without re-running the 7/4-flavor bake-off — fast, reusable; `dashboard/_single_strategy_pipeline.py`'s own `load_and_run()` refactored to call this instead of duplicating the construction inline, CLAUDE.md Rule 6 — re-verified byte-identical live on page 18, test Sharpe still 1.600, all 24 pages + 288 tests still clean). `seasonality_single_strategy.py` gained `build_economic_seasonality_book()` (same pattern, for the economic-driver same_month Book). New `research/multi_strategy_seasonality.py`: three naive equal-Book-risk Allocator combinations (no risk-parity weighting - decision #12's own follow-up, not re-applied here), no headline pick:
+
+- **A: Trend + Carry + Seasonality** — train -0.154, validation -0.442, test 0.982, VaR95 -0.031
+- **B: Trend + Seasonality** — train **+0.095**, validation **+0.210**, test **1.131**, VaR95 **-0.020**
+- **C: Trend + Carry** (the current mandate, reproduced here for a clean side-by-side) — train -0.112, validation -0.435, test 0.994, VaR95 -0.029
+
+**A striking, clean result: B (Trend + Seasonality, WITHOUT Carry) is the ONLY combination positive in all three periods** — and it beats both A and C on every single metric (train, validation, test Sharpe, and VaR95). Carry's own already-documented weak/negative standalone profile (train -0.368, validation -0.938) appears to be actively dragging down both combinations that include it (A and C), while the economic-driver Seasonality Book pairs constructively with Trend specifically in the two periods (train, validation) where Carry hurts most.
+
+**Real, more important finding caught immediately by direct question, correcting an incomplete first read: none of A, B, or C actually beats standalone Trend alone (test Sharpe 1.600) in ANY period.** The initial framing above (comparing A/B/C only to each other) understated this — the naive equal-Book-risk Allocator forces equal risk regardless of each Book's own quality, so blending Trend (strong) with a materially weaker Book (Carry test 0.293, Seasonality test 0.454) at a forced 50/50 or 33/33/33 split dilutes Trend's own edge, exactly the same failure mode already documented for Trend+Carry alone in decision #12 (why risk-parity weighting was built in the first place). Applying that SAME already-validated tool (`research/multi_strategy_seasonality_risk_parity.py`, generalizing `sleeve_risk_parity.py`'s pattern to n=3) to all three combinations: risk-parity improves every combination over its own naive version (consistent with decision #12's own finding), but **still, in every weighting scheme, standalone Trend beats every combination in every period**:
+
+| Combo | Weighting | Train | Validation | Test |
+|---|---|---|---|---|
+| Trend alone | — | **0.216** | **0.851** | **1.600** |
+| A: T+C+S | naive / risk-parity (ewma) | -0.154 / -0.102 | -0.442 / -0.306 | 0.982 / 1.058 |
+| B: T+S | naive / risk-parity (ewma) | 0.095 / 0.071 | 0.210 / 0.121 | 1.131 / 1.064 |
+| C: T+C | naive / risk-parity (ewma) | -0.112 / -0.043 | -0.435 / -0.217 | 0.994 / 1.184 |
+
+Interesting reversal under risk-parity specifically: C (Trend+Carry) becomes the best-performing COMBINATION in test (1.184-1.217 depending on estimator), overtaking B — but even C's best risk-parity test Sharpe (1.217) still falls well short of Trend alone (1.600). One numerical gotcha hit and fixed while building this: `risk_parity_weights`'s log-barrier solver failed to converge (`ABNORMAL` termination) on this 3-sleeve case — its tight `ftol`/`gtol` (tuned for Trend/Carry's own 2-sleeve covariance scale) couldn't resolve the gradient balance against these smaller weekly-PnL-variance values (~1e-4 to 1e-5). Fixed locally (not by loosening the shared, already-tested function) by scaling the covariance matrix by 1e4 before solving — the solution is provably scale-invariant after normalization (Sigma -> c*Sigma solves for w/sqrt(c), which normalizes identically), confirmed directly, not assumed.
+
+**Conclusion, stated plainly: on this evidence, neither Carry nor Seasonality (individually or combined, naive or risk-parity weighted) has been shown to add value over simply running Trend alone.** This doesn't necessarily mean either sleeve is worthless in every respect (real CTA practice sometimes keeps weaker, low-correlated sleeves for regime/tail-diversification reasons a single train/validation/test Sharpe split doesn't fully capture), but on the metric actually tested here, Trend alone wins outright. **Not yet decided**: whether to pursue that regime-diversification angle further, run a CPCV/PBO-style robustness check (per the same discipline already applied to Trend/Carry's own hyperparameters in Phase 7) before concluding anything more strongly, or simply accept Trend-alone as the current best evidence.
+
+**Dashboard integration, same day, per direct instruction — lean scope, chosen over a full dedicated page per finding.** New `dashboard/pages/24_seasonality_book_performance.py` (registered in the "Single Strategy Portfolios" nav group alongside Trend/Carry Book) — the economic-driver same_month Book, same tearsheet/equity-curve/attribution shape as pages 18/19, reported honestly as weaker than standalone Trend, same discipline as Value/XSMOM/Carry's own weaker pages. The 3-combination comparison was NOT given its own page — instead added as a new, additive "Does Adding Seasonality Help?" section at the bottom of the EXISTING page 20 (Multi-Strategy Portfolio), since it's the same "combine sleeves" question that page already answers for Trend+Carry: a sleeve multiselect (Carry/Seasonality, Trend always included) + Naive/Risk-Parity toggle, live-computed, headline finding stated up front in the caption. `dashboard/_single_strategy_pipeline.py` gained `load_and_run_seasonality()` (a SEPARATE `st.cache_resource` entry from Trend/Carry's own `load_and_run()` — kept in this same shared module, not page-local, for the exact reason that module's own docstring already documents: two pages independently caching the same expensive pipeline caused a real Streamlit Cloud OOM crash) and `compute_risk_parity_weights_n()` (a general n-sleeve version of the existing 2-sleeve `compute_risk_parity_weights`, applying the same covariance-rescale-by-1e4 numerical fix found while building `research/multi_strategy_seasonality_risk_parity.py`). tsmom_seasonal got no dashboard treatment at all — a statistical tie, not adopted, stays documented in WORKFLOW.md/CLAUDE.md only. Verified exception-free via `streamlit.testing.v1.AppTest` across all 25 pages, including explicit interaction tests on page 20's new widgets (Seasonality added, Risk Parity selected, zero-extra-sleeves edge case, and the pre-existing Trend+Carry toggle re-verified unaffected) — 296 tests passing project-wide. |
 
 ---
 
