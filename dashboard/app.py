@@ -7,7 +7,7 @@ Navigation-router pattern: this file only defines the sidebar structure via
 st.navigation()/st.Page() and renders nothing itself. Every page computes
 live at render time — see each page's own module docstring.
 
-Fourteen pages are intentionally not registered in this public build's
+Fifteen pages are intentionally not registered in this public build's
 navigation (files still exist, just unrouted here — see them on master):
 Term Structure and Continuous Curve display actual Databento-sourced price/
 curve levels directly, a licensing distinction (everything else here is a
@@ -92,6 +92,11 @@ carry_book_performance = st.Page(
     title="Carry Book",
     icon=":material/percent:",
 )
+seasonality_book_performance = st.Page(
+    PAGES_DIR / "24_seasonality_book_performance.py",
+    title="Seasonality Book",
+    icon=":material/calendar_month:",
+)
 multi_strategy_portfolio = st.Page(
     PAGES_DIR / "20_multi_strategy_portfolio.py",
     title="Trend + Carry",
@@ -100,7 +105,7 @@ multi_strategy_portfolio = st.Page(
 
 nav = st.navigation({
     "Overview": [overview],
-    "Single Strategy Portfolios": [trend_book_performance, carry_book_performance],
+    "Single Strategy Portfolios": [trend_book_performance, carry_book_performance, seasonality_book_performance],
     "Multi-Strategy Portfolios": [multi_strategy_portfolio],
     "Macro Data": [macro_explorer],
     "Technical Appendix": [volatility_estimators, correlation_estimators, portfolio_optimizer_health, portfolio_performance],

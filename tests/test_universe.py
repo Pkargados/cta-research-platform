@@ -1,6 +1,13 @@
+import pytest
 import pandas as pd
 
-from data.universe import get_liquid_universe, ICE_SOFTS_DATA_BLOCKED
+from data.universe import (
+    get_liquid_universe,
+    ICE_SOFTS_DATA_BLOCKED,
+    compress_for_family,
+    CLUSTER_REDUNDANT_ALL,
+    CLUSTER_REDUNDANT_TREND_ONLY,
+)
 
 
 def _volume_panel():
@@ -57,3 +64,46 @@ def test_get_liquid_universe_excludes_ice_softs_data_block_even_with_high_adv():
     assert "Liquid" in included
     assert "Coffee" in excluded
     assert set(ICE_SOFTS_DATA_BLOCKED) == {"Coffee", "Cotton", "OrangeJuice"}
+
+
+def _full_universe():
+    return ["WTI Crude", "Brent", "Corn", "Wheat", "KC_Wheat", "SP500", "Dow", "US_10Y", "US_5Y", "UltraBond"]
+
+
+def test_compress_for_family_rank_drops_only_near_duplicates():
+    result = compress_for_family(_full_universe(), "rank")
+    for a in CLUSTER_REDUNDANT_ALL:
+        assert a not in result
+    # 0.85-0.95 directional-only pairs are kept for a rank-based family.
+    assert "Brent" in result
+    assert "KC_Wheat" in result
+
+
+def test_compress_for_family_trend_drops_near_duplicates_and_directional_pairs():
+    result = compress_for_family(_full_universe(), "trend")
+    for a in CLUSTER_REDUNDANT_ALL:
+        assert a not in result
+    for a in CLUSTER_REDUNDANT_TREND_ONLY:
+        assert a not in result
+    # The more liquid twin of each directional-only pair survives.
+    assert "WTI Crude" in result
+    assert "Wheat" in result
+
+
+def test_compress_for_family_rejects_unknown_family():
+    with pytest.raises(ValueError):
+        compress_for_family(_full_universe(), "not_a_family")
+
+
+def test_compress_for_family_only_drops_names_present_in_input():
+    # A shorter input universe that never had the redundant names to begin with
+    # should pass through unchanged, not error.
+    result = compress_for_family(["Corn", "Soybeans"], "trend")
+    assert result == ["Corn", "Soybeans"]
+
+
+def test_compress_for_family_trend_universe_is_subset_of_rank_universe():
+    full = _full_universe()
+    trend = set(compress_for_family(full, "trend"))
+    rank = set(compress_for_family(full, "rank"))
+    assert trend.issubset(rank)
