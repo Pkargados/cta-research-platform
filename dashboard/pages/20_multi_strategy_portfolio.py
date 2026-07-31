@@ -4,10 +4,14 @@ Computes live at render time via `dashboard/_single_strategy_pipeline.py`'s
 ONE shared, cached pipeline (see that module's own docstring for why this
 must not be a page-local cache — a prior real Streamlit Cloud crash came
 from exactly that pattern). Combines the two Single Strategy Portfolios
-(Trend Book, Carry Book — see those pages) via `portfolio.allocator.
-Allocator`'s equal-Book-risk baseline (next_steps.md Phase 7's own
-recommended starting point before any optimized allocation is attempted —
-not yet built here).
+(Trend Book, Carry Book — see those pages) two ways, selectable below:
+`portfolio.allocator.Allocator`'s naive equal-Book-risk baseline (each Book
+already at its own 10% vol target, summed with no further weighting), and
+sleeve-level risk parity (`portfolio.risk_parity`, WORKFLOW.md decision #12)
+— a general n-sleeve equal-risk-contribution solver, weights fit ONCE on
+TRAIN sleeve PnL only and applied as a fixed static weight thereafter (not
+re-fit walk-forward — a real, disclosed scope limit, not silently assumed
+away).
 """
 import sys
 from pathlib import Path
@@ -19,33 +23,64 @@ import streamlit as st
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent.parent / "src"))
 from lib import page_header, render_key_takeaways, CATEGORICAL, apply_chart_theme, render_attribution_section
-from _single_strategy_pipeline import load_and_run
+from _single_strategy_pipeline import (
+    load_and_run, compute_risk_parity_weights, RISK_PARITY_ESTIMATORS,
+    TREND_BOOK_NAME, CARRY_BOOK_NAME,
+)
 
+from portfolio.allocator import Allocator
 from portfolio.risk_metrics import historical_var, expected_shortfall, expanding_var_and_es
 from backtest.splits import TRAIN_END, VALIDATION_END, train_validation_test_split
 from backtest.performance import simple_sharpe
 from data.sectors import asset_to_sector
 
-page_header("Multi-Strategy Portfolio", "Trend Book + Carry Book, combined via the Allocator (equal Book-risk baseline)")
+page_header("Multi-Strategy Portfolio", "Trend Book + Carry Book, combined via the Allocator")
 
-returns, trend_result, carry_result, trend_book, carry_book, combined_pnl = load_and_run()
-train, val, test = train_validation_test_split(combined_pnl)
+returns, trend_result, carry_result, trend_book, carry_book, naive_pnl = load_and_run()
 periods_per_year = trend_book.periods_per_year  # both Books share the same weekly cadence
 
+st.subheader("Combination Method")
+combo_choice = st.radio(
+    "How Trend and Carry are combined",
+    ["Naive (equal Book-risk)", "Risk Parity (equal risk contribution)"],
+    horizontal=True,
+)
+
+if combo_choice.startswith("Risk Parity"):
+    estimator_label = st.radio("Sleeve covariance estimator", list(RISK_PARITY_ESTIMATORS.keys()), horizontal=True)
+    weights = compute_risk_parity_weights(RISK_PARITY_ESTIMATORS[estimator_label])
+    if not weights["converged"]:
+        st.warning("This estimator's fit did not converge on the train window — weights may be unstable.")
+
+    allocator = Allocator(
+        [trend_book, carry_book],
+        book_weights={TREND_BOOK_NAME: weights["trend"], CARRY_BOOK_NAME: weights["carry"]},
+    )
+    combined = allocator.run(returns)
+    combined_pnl = combined["pnl"]
+    combined_contributions = combined["asset_contributions"]
+    combo_caption = (
+        f"Risk-parity weights (Trend {weights['trend']/2:.1%} / Carry {weights['carry']/2:.1%} of the total risk "
+        f"budget) fit ONCE on TRAIN sleeve PnL only via {estimator_label.split(' (')[0]} covariance, then applied "
+        "as a fixed static weight across train/validation/test — not re-fit walk-forward (WORKFLOW.md decision #12)."
+    )
+else:
+    combined_pnl = naive_pnl
+    combined_contributions = trend_result["asset_contributions"].add(carry_result["asset_contributions"], fill_value=0.0)
+    combo_caption = (
+        "Naive equal-Book-risk baseline — each Book targets the same 10% annualized vol independently "
+        "(WORKFLOW.md decision #5), then summed with no further risk-weighting (`Allocator`'s own w=[1, 1] default)."
+    )
+
+train, val, test = train_validation_test_split(combined_pnl)
 var95 = historical_var(combined_pnl, confidence=0.95)
 es95 = expected_shortfall(combined_pnl, confidence=0.95)
 
 render_key_takeaways([
-    "**Equal Book-risk baseline** — each Book targets the same 10% annualized vol "
-    "independently before combining (standard CTA-sleeve convention, decided in "
-    "WORKFLOW.md decision #5), not yet a cost-aware or diversification-adjusted "
-    "optimized allocation (`next_steps.md` Phase 7's later baselines).",
+    combo_caption,
     f"Combined Sharpe — train **{simple_sharpe(train, periods_per_year=periods_per_year):.2f}**, "
     f"validation **{simple_sharpe(val, periods_per_year=periods_per_year):.2f}**, "
-    f"test **{simple_sharpe(test, periods_per_year=periods_per_year):.2f}**. Validation is "
-    "dragged down by Carry's weak validation despite Trend's strong one — a real "
-    "consequence of equal risk-weighting two Books with very different validation-period "
-    "performance, not a bug.",
+    f"test **{simple_sharpe(test, periods_per_year=periods_per_year):.2f}**.",
     f"Full-sample 95% VaR **{var95:.2%}**, ES **{es95:.2%}** (weekly) — risk MEASUREMENT, "
     "not risk control; position/sector/leverage limits (`next_steps.md` Phase 8) aren't "
     "built yet.",
@@ -104,13 +139,16 @@ st.plotly_chart(fig2, use_container_width=True, theme="streamlit")
 st.divider()
 
 st.subheader("Attribution — Cumulative Contribution by Book")
+_book_weights = {"Trend": weights["trend"], "Carry": weights["carry"]} if combo_choice.startswith("Risk Parity") \
+    else {"Trend": 1.0, "Carry": 1.0}
 fig_book_attr = go.Figure()
 for i, (name, result) in enumerate([("Trend", trend_result), ("Carry", carry_result)]):
     pnl = result.get("pnl")
     if pnl is None or len(pnl) == 0:
         continue
+    weighted_pnl = pnl * _book_weights[name]
     fig_book_attr.add_trace(go.Scatter(
-        x=pnl.index, y=pnl.cumsum(), mode="lines", name=name,
+        x=weighted_pnl.index, y=weighted_pnl.cumsum(), mode="lines", name=name,
         line=dict(color=CATEGORICAL[i % len(CATEGORICAL)], width=1.4),
     ))
 fig_book_attr.update_layout(
@@ -122,19 +160,20 @@ fig_book_attr.update_layout(
 fig_book_attr = apply_chart_theme(fig_book_attr)
 st.plotly_chart(fig_book_attr, use_container_width=True, theme="streamlit")
 st.caption(
-    "The Allocator combines Books by simple addition (`portfolio.allocator.Allocator`) — "
-    "each Book's own cumulative contribution here sums exactly to the combined portfolio's "
-    "own cumulative return at any date, no approximation."
+    "Each Book's own weighted cumulative contribution here sums exactly to the combined "
+    "portfolio's own cumulative return at any date, no approximation — weighted by the "
+    "combination method selected above (equal [1, 1] for naive, the fitted risk-parity "
+    "split otherwise)."
 )
 
 st.divider()
 
-combined_contributions = trend_result["asset_contributions"].add(carry_result["asset_contributions"], fill_value=0.0)
 render_attribution_section(combined_contributions, asset_to_sector(), key_prefix="combined")
 st.caption(
     "Combined across both Books (Trend's and Carry's own per-asset gross contributions, "
-    "summed date-by-date) — the same asset can carry a Trend position and a Carry position "
-    "at once, so this is exposure attribution for the whole portfolio, not per-Book."
+    "weighted by the combination method selected above and summed date-by-date) — the same "
+    "asset can carry a Trend position and a Carry position at once, so this is exposure "
+    "attribution for the whole portfolio, not per-Book."
 )
 
 st.divider()
