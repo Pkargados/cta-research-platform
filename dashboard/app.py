@@ -72,6 +72,11 @@ portfolio_optimizer_health = st.Page(
     title="Optimizer Health",
     icon=":material/insights:",
 )
+correlation_estimators = st.Page(
+    PAGES_DIR / "22_correlation_estimators.py",
+    title="Correlation Estimators",
+    icon=":material/hub:",
+)
 macro_explorer = st.Page(
     PAGES_DIR / "15_macro_explorer.py",
     title="Macro Explorer",
@@ -98,7 +103,7 @@ nav = st.navigation({
     "Single Strategy Portfolios": [trend_book_performance, carry_book_performance],
     "Multi-Strategy Portfolios": [multi_strategy_portfolio],
     "Macro Data": [macro_explorer],
-    "Technical Appendix": [volatility_estimators, portfolio_optimizer_health, portfolio_performance],
+    "Technical Appendix": [volatility_estimators, correlation_estimators, portfolio_optimizer_health, portfolio_performance],
 })
 
 nav.run()
