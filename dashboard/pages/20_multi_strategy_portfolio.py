@@ -25,7 +25,8 @@ sys.path.insert(0, str(Path(__file__).resolve().parent.parent.parent / "src"))
 from lib import page_header, render_key_takeaways, CATEGORICAL, apply_chart_theme, render_attribution_section
 from _single_strategy_pipeline import (
     load_and_run, compute_risk_parity_weights, RISK_PARITY_ESTIMATORS,
-    TREND_BOOK_NAME, CARRY_BOOK_NAME,
+    TREND_BOOK_NAME, CARRY_BOOK_NAME, SEASONALITY_BOOK_NAME,
+    load_and_run_seasonality, compute_risk_parity_weights_n,
 )
 
 from portfolio.allocator import Allocator
@@ -194,4 +195,58 @@ st.plotly_chart(fig3, use_container_width=True, theme="streamlit")
 st.caption(
     "Expanding, not rolling — Book PnL is weekly-periodicity, `min_periods=24` is a "
     "labeled, not validated, default (`portfolio/risk_metrics.py`)."
+)
+
+st.divider()
+
+st.subheader("Does Adding Seasonality Help? (exploration, 2026-07-31)")
+st.caption(
+    "WORKFLOW.md decision #13's own follow-up — same_month restricted to the "
+    "economic-driver universe (see the Seasonality Book page, 24), tested as a "
+    "possible third sleeve. **Honest headline finding: none of the combinations below "
+    "beat standalone Trend alone in any period, naive or risk-parity weighted.**"
+)
+
+_season_returns, season_result, season_book = load_and_run_seasonality()
+_book_lookup = {"trend": (TREND_BOOK_NAME, trend_book, trend_result), "carry": (CARRY_BOOK_NAME, carry_book, carry_result), "seasonality": (SEASONALITY_BOOK_NAME, season_book, season_result)}
+
+c1, c2 = st.columns(2)
+with c1:
+    extra_sleeves = st.multiselect("Add sleeves to Trend", ["Carry", "Seasonality"], default=["Carry"], key="season_sleeves")
+with c2:
+    season_combo_choice = st.radio("Combination", ["Naive (equal Book-risk)", "Risk Parity"], horizontal=True, key="season_combo")
+
+selected_names = ["trend"] + [s.lower() for s in extra_sleeves]
+selected_books = [_book_lookup[n][1] for n in selected_names]
+
+if season_combo_choice.startswith("Risk Parity"):
+    weights_n = compute_risk_parity_weights_n(tuple(selected_names), estimator="ewma")
+    if not weights_n["converged"]:
+        st.warning("This estimator's fit did not converge on the train window — weights may be unstable.")
+    book_weights = {_book_lookup[n][0]: weights_n[n] for n in selected_names}
+    season_allocator = Allocator(selected_books, book_weights=book_weights)
+else:
+    season_allocator = Allocator(selected_books)
+
+# `returns` (Trend/Carry's own full-universe returns frame, loaded above)
+# already contains all 7 of the seasonality Book's own economic-driver names
+# - none of them were touched by any universe compression - so it's a valid
+# shared returns frame for every combination here, seasonality included.
+season_combined = season_allocator.run(returns)
+season_combined_pnl = season_combined["pnl"]
+
+comparison_rows = {"Trend alone": trend_result["pnl"]}
+comparison_rows[" + ".join(["Trend"] + extra_sleeves) if extra_sleeves else "Trend alone (selected)"] = season_combined_pnl
+comparison_table = pd.DataFrame({
+    label: {
+        period: simple_sharpe(series, periods_per_year=periods_per_year)
+        for period, series in zip(("Train", "Validation", "Test"), train_validation_test_split(pnl_series))
+    }
+    for label, pnl_series in comparison_rows.items()
+}).T
+st.dataframe(comparison_table.round(3), use_container_width=True)
+st.caption(
+    "Risk-parity weights (when selected) fit ONCE on TRAIN sleeve PnL only (EWMA "
+    "covariance, halflife=87 weeks), applied as a fixed static weight across all three "
+    "periods — same discipline as the Trend+Carry toggle above."
 )
