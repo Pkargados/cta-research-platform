@@ -3477,6 +3477,276 @@ directly; (3) only then consider empirical-Bayes shrinkage, scoped to the
 handful of low-PBO Books rather than all 20. Full per-Book combination-level
 output and logit histograms: `Data/research/tune_all_books_cpcv/`.
 
+### Gerber statistic covariance — built 2026-07-31, honest negative diagnostic result
+
+Raised directly by the user: `references/The Gerber Statistic.pdf` (Gerber, Markowitz,
+Ernst, Miao, Javid, Sargen — final version, July 2021), read directly before scoping
+this. Proposed as a third covariance-estimator candidate alongside the current
+Ledoit-Wolf default (`portfolio.covariance.build_cov_dict`), following the exact same
+"diagnostic comparison first, live-integration only with decisive evidence" pattern
+already used for GARCH vol-targeting (decision #11) and DCC-GARCH sleeve covariance
+(decision #12).
+
+**What the paper does, verified by reading it directly, not from memory**: for each
+asset k, a threshold `H_k = c * s_k` (`s_k` = that asset's own sample std dev; the paper
+sweeps `c` in {0.5, 0.7, 0.9} as a robustness check, not a single fixed choice). Each
+date/asset is classified Up (>= +H_k), Down (<= -H_k), or Neutral. A pair is
+**concordant** if both pierce their threshold in the same direction, **discordant** if
+opposite directions — anything touching Neutral is excluded from the count entirely
+(the "noise-stripping" the whole statistic is built around). The paper's own actual
+formula (Eq. 11 — a naive earlier version, Eq. 4, is NOT positive-semidefinite-safe and
+is not used in any empirical result):
+
+```
+g_ij = (n_UU + n_DD - n_UD - n_DU) / (T - n_NN)
+```
+
+Denominator is `T` minus only the both-neutral count (not `n_concordant + n_discordant`)
+— empirically always PSD in the paper's own tests (9 clean asset-class indices, not
+proven as a theorem). `Σ_GS = diag(σ) @ G @ diag(σ)`, same construction as converting a
+correlation matrix to a covariance matrix.
+
+**Paper's own backtest** (context, not something being reproduced 1:1): 9 broad
+asset-class indices, monthly returns, 1990-2020, long-only turnover-penalized
+mean-variance optimization, 24-month rolling lookback, 5 risk targets x 3 thresholds (15
+scenarios). Gerber beat historical/sample covariance in all 15 scenarios, beat Ledoit-Wolf
+in 14 of 15 (lost only at c=0.5, the most conservative 3% risk target).
+
+**Two disclosed differences from the paper, stated up front, not discovered mid-build**:
+(1) their win was demonstrated on clean, monthly, fully-overlapping data across 9 broad
+indices — this project's own universe (~31-42 sparse, ragged-history commodity/FX/rates
+futures) is a much noisier setting their own evidence doesn't automatically transfer to;
+(2) their own optimizer is a plain long-only MVO, not this project's turnover-penalized
+Book optimizer running at WEEKLY cadence (`Book`'s own `COV_FREQ="W-FRI"`) — Gerber will
+be computed at that same weekly cadence here, not literally monthly like the paper.
+
+**Implementation outline**:
+
+1. **`src/portfolio/gerber_covariance.py`** (new, sibling to `covariance.py`/
+   `sleeve_covariance.py`): `gerber_correlation(returns, c=0.5)` (NaN-safe U/D indicator
+   matrices via matrix multiply — `N_UU=U'U`, `N_DD=D'D`, `N_UD=U'D`, `N_DU=D'U`,
+   `N_NN` from a separate neutral-indicator matrix; **per-pair `T_ij`, not one global T**
+   — this project's real data has ragged joint histories, unlike the paper's clean
+   overlapping dataset), `gerber_covariance(returns, c=0.5)` (`diag(sigma) @ G @
+   diag(sigma)`), and `build_gerber_cov_dict(returns, window, freq, c=0.5)` — same
+   date-indexed dict shape as `build_cov_dict`, a drop-in alternative, at the Book's own
+   weekly cadence. **Explicit PSD check + eigenvalue-clipping fallback** — the paper only
+   observed PSD empirically on 9 clean assets; do not assume it holds unchecked on ~40
+   sparse futures. All three thresholds (c=0.5/0.7/0.9) built as parallel specs per the
+   paper's own robustness sweep, fixed a priori — no cherry-picking after seeing results
+   (CLAUDE.md Rule 1/2).
+2. **`research/covariance_estimator_comparison.py`** (new): three estimators (rolling
+   sample covariance, Ledoit-Wolf [current default], Gerber x3 thresholds) on Trend's own
+   adopted, compressed universe (already the most relevant, already-decided universe — no
+   need to invent a new one). Metric, matching page 06's own precedent rather than just
+   eyeballing matrices: at each rebalance date, form a reference portfolio (e.g.
+   minimum-variance) from each estimator's Sigma, compare forecast portfolio variance at
+   formation vs. realized portfolio variance over the following period — the multivariate
+   analogue of page 06's QLIKE-against-realized-variance test. Secondary diagnostic
+   matching page 22's style: pairwise correlation time series for a few representative
+   pairs across calm vs. stressed regimes. Cached to `Data/research/...parquet`, same
+   precompute-once convention as pages 06/22.
+3. **New Technical Appendix page (25)**: same shape as pages 06/22 — comparison
+   table/chart, condition number over time, the forecast-accuracy metric, plain-language
+   conclusion.
+4. **`tests/test_gerber_covariance.py`** (new): `g_ii == 1` exactly (provable
+   algebraically — U and D are mutually exclusive for an asset against itself); bounded in
+   [-1, 1]; reduces to Kendall's Tau at `c=0` (a clean, checkable special case of Eq. 11's
+   specific denominator); PSD-check/fallback exercised on a deliberately ragged synthetic
+   panel; per-pair `T_ij` handling verified for assets with different valid-date coverage.
+
+**Explicitly out of scope for this pass**: swapping any live Book's actual optimizer
+covariance. That's a separate, later decision, only pursued if stage 2's diagnostic shows
+a real forecast-accuracy edge — and would then need the same realized-Sharpe/turnover/
+drawdown re-test every other estimator swap in this project got before touching
+`single_strategy_portfolios.py`'s actual Book construction.
+
+**Built, all 4 steps, same day.** `src/portfolio/gerber_covariance.py` (`gerber_correlation`,
+`gerber_covariance`, `build_gerber_cov_dict`, `drop_until_complete`/`_nearest_psd_correlation`
+— the latter renamed from a private helper to a public, reusable one once
+`research/covariance_estimator_comparison.py` needed the identical NaN-cleanup logic for
+Ledoit-Wolf/sample-covariance matrices too, CLAUDE.md Rule 6) + 14 new unit tests
+(`tests/test_gerber_covariance.py` — `g_ii == 1` exactly, bounded in [-1,1], the `c=0`
+Kendall's-Tau-a reduction, per-pair `T_ij` verified against a deliberately gapped asset,
+the all-neutral NaN case, PSD-clip no-op/fix behavior, `drop_until_complete`'s worst-offender
+removal). 324 tests passing project-wide (310 including these 14, plus pre-existing).
+
+**A real universe gap found live, not assumed**: computing both Ledoit-Wolf and Gerber
+directly on Trend's own 31-asset compressed universe (WORKFLOW.md decision #13) at the
+plan's stated weekly/252-day settings, `build_cov_dict` produced **zero** usable
+rebalance dates — its row-wise `dropna(how="any")` gate needs every one of 31 assets
+non-NaN in the same window, and several of those assets are only ~55-60% covered in any
+252-day slice of this panel, so the union of everyone's scattered gaps eats every single
+window. Gerber's own per-pair `T_ij` tolerance handled the identical raw 31-asset panel
+far better (800 usable dates vs. Ledoit-Wolf's 0, confirmed live) — a real, disclosed
+structural advantage of the per-pair design, exactly the motivation stated in the
+Implementation Outline above, not a surprise. But it made the raw universe unusable for a
+fair side-by-side comparison. Fixed by adding one more filter on top of Trend's
+universe — assets with >= 90% overall non-NaN return coverage, the same threshold
+`single_strategy_portfolios.py`'s own `_active_columns` already uses for its own Book
+construction (reused, not re-guessed) — narrowing to 21 of the 31 assets. This is a
+comparison-fairness fix, not a finding about which estimator to prefer: Gerber's own
+practical advantage on the raw, ragged panel is real and worth remembering separately
+from the accuracy question below.
+
+**Forecast-accuracy result (`research/covariance_estimator_comparison.py`, cached to
+`Data/research/covariance_estimator_{qlike,summary,pairwise}.{parquet,csv}`, Technical
+Appendix dashboard page 25): Gerber does NOT beat Ledoit-Wolf.** Five estimators (rolling
+sample, Ledoit-Wolf, Gerber c=0.5/0.7/0.9) scored by the multivariate QLIKE analogue
+described in the Implementation Outline (global minimum-variance portfolio, forecast vs.
+realized variance over the following week), on 651 common formation dates:
+
+| Estimator | Mean QLIKE (lower=better) | Per-date win rate | Mean condition number |
+|---|---|---|---|
+| Sample | 0.888 | 45.9% | ~39,074 |
+| **Ledoit-Wolf** | **0.629** | 25.5% | **~150** |
+| Gerber c=0.5 | 0.716 | 9.7% | ~9,816 |
+| Gerber c=0.7 | 0.739 | 8.1% | ~9,234 |
+| Gerber c=0.9 | 0.750 | 10.8% | ~8,800 |
+
+Ledoit-Wolf wins pooled-average QLIKE by a wide margin, and Gerber gets monotonically
+*worse* as the threshold `c` increases from 0.5 to 0.9 (the opposite of "pick the most
+conservative threshold for safety" intuition) — reported as found, not tuned after the
+fact (Rule 1/2), and not re-litigated by cherry-picking a different threshold post hoc.
+Ledoit-Wolf's shrinkage also produces by far the best-conditioned matrices (~150 vs.
+Gerber's ~8,800-9,800 even after eigenvalue-clipping, vs. plain sample covariance's
+~39,000) — expected, since shrinkage is specifically designed to fix conditioning and
+Gerber's PSD fallback only clips negative eigenvalues, it doesn't shrink toward a
+well-conditioned target the way Ledoit-Wolf does. One genuine tension worth keeping,
+same pattern page 06 already documents for its own pooled-average-vs-win-rate pair:
+plain sample covariance has the WORST pooled mean QLIKE but the BEST per-date win rate
+(45.9%, nearly double Ledoit-Wolf's 25.5%) — plausibly because its much worse
+conditioning produces occasional wild misses that drag the mean up without changing how
+often it's merely "less wrong than the others" on an ordinary date.
+
+**Per the plan's own explicit gate ("only pursue live-Book integration if this diagnostic
+shows a real forecast-accuracy edge"), this result does NOT clear that bar** — Gerber is
+not adopted for any live Book's optimizer covariance. `portfolio.covariance.build_cov_dict`
+(Ledoit-Wolf) remains the default everywhere. `portfolio.gerber_covariance` is kept as a
+validated, tested estimator (not deleted) for future re-evaluation if the universe or
+cadence changes enough to revisit this.
+
+**Extended past the plan's own gate, per direct instruction, same day — a disclosed
+exception, not a re-litigation of the QLIKE result above.** Raised directly: forecast
+variance accuracy isn't the only channel through which a covariance estimator could
+still raise a REALIZED Book's Sharpe — e.g. (1) weight/turnover stability (Gerber's
+threshold excludes small noisy moves from the concordant/discordant count entirely, so
+its correlation estimate may move less window-to-window than Ledoit-Wolf's, which could
+mean a smoother position path and lower net-of-cost turnover drag even without a
+variance-forecast edge); (2) QLIKE here only scores ONE portfolio's (the global min-var
+portfolio's) variance forecast — `Book`'s actual objective is a mean-variance trade-off
+(`alpha - gamma*risk - kappa*turnover`) where Sigma's full off-diagonal structure shapes
+which alpha gets crowded down or levered up, a return-side effect the risk-only
+diagnostic above can't see; (3) outlier/noise robustness in the correlation estimate
+itself, independent of the pooled-average variance-forecast score; (4) regime-specific
+behavior a full-sample pooled average can wash out (a worse-in-calm/better-in-stress
+profile nets to "loses on average" here but could still matter for realized tail Sharpe).
+None of these are asserted as true — they're the reasons a real Book-level backtest is a
+genuinely different question from the diagnostic above, not a redundant re-check, and
+worth running despite the negative QLIKE result.
+
+**Book-level follow-up, built and run 2026-07-31 (`research/gerber_book_performance.py`,
+`gerber_xsmom_value_seasonality.py`, `gerber_integrated_value_xsmom.py`,
+`gerber_sector_breakdown.py`): still not adopted — no clean rule found, strategy-specific
+effects in both directions.** `single_strategy_portfolios.build_book` gained two backward
+-compatible optional params for this (`cov_dict_builder=None` defaults to the existing
+Ledoit-Wolf `build_cov_dict`; `cost_bps=None` defaults to gross, matching every existing
+caller's unchanged behavior) — no existing script's output changed as a result of this
+wiring. **NET of the same liquidity-tiered transaction costs every other net-of-cost
+comparison in this project uses** (`backtest.costs.liquidity_tiered_cost_bps`, reused not
+re-derived) — the first pass through this follow-up was gross-only, a real gap raised
+directly and fixed before drawing any conclusion from turnover differences.
+
+Seven Books tested (Ledoit-Wolf baseline vs. Gerber c=0.5/0.7/0.9, all three thresholds as
+parallel specs per the usual discipline, not just the best-looking one), train/validation
+/test net Sharpe:
+
+| Book | Ledoit-Wolf (train/val/test) | Best Gerber (train/val/test) | Turnover: LW vs. Gerber |
+|---|---|---|---|
+| Trend `tsmom_alone` | 0.018 / **0.679** / 1.451 | 0.235 / 0.166 / 1.476 | 0.623 vs. 0.55-0.57 (lower) |
+| Trend `tsmom_seasonal` | -0.015 / **0.690** / 1.449 | 0.223 / 0.183 / 1.509 | 0.630 vs. 0.55-0.57 (lower) |
+| Carry `carry_timing_zero` | -0.624 / **-1.264** / 0.112 | -0.178 / **-0.327** / -0.036 | 1.256 vs. 1.02-1.08 (lower) |
+| XSMOM | -0.244 / -1.161 / -0.097 | -0.169 / -1.114 / **0.285** | 0.542 vs. 0.74-0.88 (HIGHER) |
+| Value | -0.682 / **0.541** / -0.303 | -0.019 / -0.054 / -0.250 | 0.314 vs. 0.37-0.38 (higher) |
+| Same-month (economic-driver) | -0.240 / -0.442 / 0.385 | -0.324 / -0.562 / **0.596** | 0.158 vs. 0.14 (lower) |
+| Integrated Value+XSMOM | -0.824 / -1.188 / **0.207** | -0.585 / -1.663 / -0.233 | 0.684 vs. 0.62-0.68 (flat) |
+
+**No consistent rule survives contact with all seven.** Validation gets worse under Gerber
+in 6 of 7 Books — Carry is the lone, large exception (validation -1.26 -> -0.33, its own
+worst historical stretch cut dramatically). Test is a genuine mixed bag: better for XSMOM
+and same-month, worse for Value/Carry/Integrated, roughly tied for both Trend flavors.
+Turnover direction even flips between strategies (down for Trend/Carry/same-month, UP for
+XSMOM/Value, flat for Integrated) — the "Gerber smooths turnover" mechanism from the
+original diagnostic write-up does not hold universally, contrary to what the earlier
+(Trend/Carry-only) partial result suggested before XSMOM/Value/Integrated were tested.
+Both Trend flavors move together nearly identically under Gerber (as expected — CLAUDE.md
+already documents `tsmom_alone`/`tsmom_seasonal` as statistically indistinguishable), a
+clean confirmation the effect here is driven by the shared universe/covariance mechanics,
+not by which Trend flavor sits on top of it.
+
+**Per-sector breakdown** (`gerber_sector_breakdown.py`, coarse 4-group roll-up of
+`data.sectors.SECTORS` — Commodities/Equities/Rates/FX — applied to XSMOM, Value,
+Integrated, and Carry; an EXACT decomposition of each Book's own net PnL via
+`asset_contributions` minus a per-asset transaction-cost allocation, not modeled, since
+every Book's `LAMBD=0.0` leaves no penalty term to allocate — verified by a sanity assert
+that every sector's net PnL sums back to the whole Book's own net PnL exactly, on all 8
+signal x estimator combinations run): Carry's headline validation improvement under Gerber
+is NOT spread evenly — it's concentrated in Commodities (-0.790 -> -0.126) and especially
+Rates (-0.495 -> **+0.208**, a sign flip), while FX and Equities barely move or get
+slightly worse. Cached to `Data/research/gerber_sector_breakdown.csv`.
+
+**Multi-strategy Allocator combination** (`run_multi_strategy_combinations`, naive
+equal-Book-risk `Allocator`, the same baseline construction `research/multi_strategy_
+seasonality.py` already established — demonstrates directly that a different covariance
+estimator per Book is already architecturally supported, since `Allocator` only ever
+touches each Book's own already-solved `pnl`, per its own docstring): combining the
+ADOPTED Trend(`tsmom_alone`)+Carry(`carry_timing_zero`) mandate under three pairings —
+
+| Combo | Train | Validation | Test |
+|---|---|---|---|
+| Both Ledoit-Wolf (current mandate) | -0.387 | -0.796 | **0.773** |
+| Both Gerber c=0.5 | -0.097 | -0.385 | 0.713 |
+| Per-Book best by validation (Trend->LW, Carry->Gerber c=0.9) | -0.238 | **+0.036** | 0.521 |
+
+The per-Book-best mix rescues validation from deeply negative to roughly flat, but test
+gets WORSE (0.521 vs. 0.773) — and since the mix was itself SELECTED by validation Sharpe,
+its own validation win is partly mechanical, not free evidence (the same selection-bias
+caution this project's own hyperparameter-tuning work in Phase 7 already established).
+Test is the honest read here, and on test the current all-Ledoit-Wolf mandate still wins
+outright.
+
+**Conclusion: Gerber is not adopted anywhere in this project.** The original diagnostic
+gate (real forecast-accuracy edge) was not cleared. The extended Book-level investigation,
+pursued anyway per direct instruction specifically because forecast accuracy isn't the
+only channel through which an estimator could move realized Sharpe, also does not clear a
+"clearly better" bar for any single Book or combination — it helps Carry meaningfully, hurts
+Value and Integrated Value+XSMOM meaningfully, and is a mixed bag everywhere else, with no
+predictive rule found (by strategy speed, cadence, or cross-sectional-vs-time-series
+construction) that explains the pattern across all seven Books tested. `portfolio.
+covariance.build_cov_dict` (Ledoit-Wolf) remains every live Book's covariance input, with
+no exception. `portfolio.gerber_covariance` is kept as a validated, tested estimator (not
+deleted) for future re-evaluation if the universe, cadence, or strategy roster changes
+enough to revisit this.
+
+**RV/cointegration spread strategies — a revised prior, logged for Phase 2d, not yet
+tested (that signal family isn't built yet).** Raised and corrected directly: an RV book
+with 5-6 spreads is NOT a "single pairwise covariance" problem — each spread is itself a
+synthetic instrument with its own P&L series, and the optimizer needs the full N x N
+covariance ACROSS SPREADS to size them jointly (crowding, netting, diversification), the
+same estimation problem as Trend or Carry, just one level up (spread-to-spread instead of
+asset-to-asset) — the initial framing understated this and was corrected before drawing
+any conclusion. Revised prior: **Ledoit-Wolf likely still wins, for a sharper reason than
+originally stated** — the classic RV/stat-arb tail risk is a cross-spread correlation
+spike during a market-wide deleveraging shock (multiple "unrelated" spreads suddenly
+moving together — the August 2007 quant-quake pattern is the textbook case), exactly the
+kind of fast, magnitude-driven event a threshold-based estimator is structurally slow to
+register (the same mechanism that hurt Trend and Value here). Working the other way:
+Gerber's per-pair `T_ij` tolerance is genuinely relevant again for a multi-spread book
+(each spread has its own warm-up/history, unlike a single fixed pair), and most of a
+mean-reverting spread's life is quiet chop where Gerber's noise-stripping should help
+turnover for free, the same way it helped Carry. Not testable until Phase 2d's RV spread
+Book exists.
+
 ---
 
 ## Phase 8 — Risk management 🟡

@@ -148,6 +148,11 @@ correlation_estimators = st.Page(
     title="Correlation Estimators",
     icon=":material/hub:",
 )
+covariance_estimators = st.Page(
+    PAGES_DIR / "25_covariance_estimators.py",
+    title="Covariance Estimators",
+    icon=":material/grid_on:",
+)
 macro_explorer = st.Page(
     PAGES_DIR / "15_macro_explorer.py",
     title="Macro Explorer",
@@ -186,7 +191,7 @@ nav = st.navigation({
     "Single Strategy Portfolios": [trend_book_performance, carry_book_performance, seasonality_book_performance],
     "Multi-Strategy Portfolios": [multi_strategy_portfolio],
     "Macro Data": [macro_explorer],
-    "Technical Appendix": [volatility_estimators, correlation_estimators, portfolio_optimizer_health, portfolio_performance],
+    "Technical Appendix": [volatility_estimators, correlation_estimators, covariance_estimators, portfolio_optimizer_health, portfolio_performance],
 })
 
 nav.run()

@@ -163,7 +163,21 @@ def _active_columns(alpha_df, returns_df, min_valid_frac=0.90):
     return [c for c in alpha_df.columns if has_alpha.get(c, False) and returns_valid_frac.get(c, 0.0) >= min_valid_frac]
 
 
-def build_book(name, alpha_df, returns, vol_estimator="ewma"):
+def build_book(name, alpha_df, returns, vol_estimator="ewma", cov_dict_builder=None, cost_bps=None):
+    """`cov_dict_builder` defaults to `build_cov_dict` (Ledoit-Wolf, every
+    existing caller's unchanged behavior) - overridable to any callable with
+    the same `(returns, window, freq)` signature, e.g.
+    `functools.partial(gerber_covariance.build_gerber_cov_dict, c=0.5)`, for
+    `research/gerber_book_performance.py`'s own covariance-estimator swap
+    (WORKFLOW.md's Gerber statistic covariance plan, Phase 7 follow-up).
+
+    `cost_bps` defaults to None (every existing caller's unchanged GROSS
+    behavior) - pass `backtest.costs.liquidity_tiered_cost_bps(...)` (same
+    construction `research/tune_all_books.py` already uses) for a NET-of-cost
+    Book, needed to tell a genuine turnover-driven cost saving apart from a
+    pure gross-Sharpe effect."""
+    if cov_dict_builder is None:
+        cov_dict_builder = build_cov_dict
     active = _active_columns(alpha_df, returns)
     alpha_active = alpha_df[active]
     train_std = alpha_active.loc[:TRAIN_END].stack().std()
@@ -171,14 +185,14 @@ def build_book(name, alpha_df, returns, vol_estimator="ewma"):
         train_std = 1.0
     alpha_scaled = alpha_active / train_std
 
-    cov_dict = build_cov_dict(returns[active], window=COV_WINDOW, freq=COV_FREQ)
+    cov_dict = cov_dict_builder(returns[active], window=COV_WINDOW, freq=COV_FREQ)
     return Book(
         name=name, alpha_df=alpha_scaled, cov_dict=cov_dict,
         gamma=GAMMA, kappa=KAPPA, lambd=LAMBD, max_weight=MAX_WEIGHT,
         target_vol=TARGET_VOL_BOOK, ewma_halflife=EWMA_HALFLIFE,
         scale_min=SCALE_MIN, scale_max=SCALE_MAX,
         periods_per_year=PERIODS_PER_YEAR, dollar_neutral=False,
-        vol_estimator=vol_estimator,
+        vol_estimator=vol_estimator, cost_bps=cost_bps,
     )
 
 
