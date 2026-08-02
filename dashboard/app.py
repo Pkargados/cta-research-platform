@@ -1,41 +1,39 @@
 """
-CTA Research Dashboard — entry point (public build).
+CTA Research Dashboard — entry point.
 
 Launch with: streamlit run dashboard/app.py
 
 Navigation-router pattern: this file only defines the sidebar structure via
-st.navigation()/st.Page() and renders nothing itself. Every page computes
-live at render time — see each page's own module docstring.
-
-Fifteen pages are intentionally not registered in this public build's
-navigation (files still exist, just unrouted here — see them on master):
-Term Structure and Continuous Curve display actual Databento-sourced price/
-curve levels directly, a licensing distinction (everything else here is a
-backtest/statistical result derived from that data, not the raw series
-itself); Pipeline Health, OHLCV Coverage, Volatility, and Macro are all
-"is the pipeline healthy right now" status/monitoring pages — useful for
-the maintainer, not evidence of research quality for a visitor, and a
-stale/missing-data status would read as "something's broken" with no
-context to a stranger. Volatility Estimators, Optimizer Health, and
-Portfolio Construction (13, the original 6-Book pilot, superseded by
-Single/Multi-Strategy Portfolios as the actual current result) all live in
-the "Technical Appendix" group at the end of the nav rather than up front —
-all three validate machinery/methodology or show now-superseded history
-rather than reporting the current result, so they're placed after the
-actual research for whoever wants to verify the rigor behind it, not as the
-first thing a visitor sees. The entire "Strategy Performance" group
-(Momentum plus the six weaker families that were briefly folded into an
-"Other Signal Families" summary page) is removed from this build's nav —
-Single Strategy Portfolios (Trend Book, Carry Book) supersedes it as the
-public-facing story: those two pages show the actual decided construction
-and vol-targeting choice for each, not the individual per-signal research
-that fed into deciding them. That underlying research (07_momentum_
-performance.py, 21_other_signal_families.py, and the rest) still exists and
-stays routed on master.
+st.navigation()/st.Page() and renders nothing itself. Pages 00-04 (Data QA)
+read pre-computed artifacts from Data/dashboard_summary/ — produced by
+jobs/update_dashboard_summary.py (CTA_DashboardSummary, daily 6:25PM). Pages
+05-20 (Strategy Performance, Single/Multi-Strategy Portfolios, Macro,
+Technical Appendix) compute live at render time instead — see each page's
+own module docstring. Portfolio Construction (13, the original 6-Book pilot)
+now lives in "Technical Appendix" alongside Volatility Estimators and
+Optimizer Health — superseded by Single/Multi-Strategy Portfolios as the
+actual current result, kept for whoever wants the machinery/methodology
+history rather than up front. Pages 18-20 (Single/Multi-Strategy Portfolios) share ONE
+cached pipeline (dashboard/_single_strategy_pipeline.py), not one per page —
+see that module's docstring for why (a real prior OOM crash from the
+equivalent mistake on pages 13/14).
 
 Overview (page 17) is the default landing page — a static, no-computation
-project narrative, since a visitor's first click shouldn't land on a live
-signal/portfolio computation.
+project narrative, since a visitor's first click shouldn't land on an
+internal QA page (Pipeline Health) or wait on a live signal/portfolio
+computation.
+
+Note: the public build (main branch) additionally excludes Term Structure
+(01), Continuous Curve (05), Pipeline Health, OHLCV Coverage, Volatility,
+and Macro from its navigation — the first two display raw Databento-sourced
+price/curve levels directly (a licensing distinction that doesn't apply to
+this local build); the other four are all "is the pipeline healthy right
+now" status/monitoring pages, maintainer-only, not evidence of research
+quality for a visitor. Volatility Estimators and Optimizer Health stay on
+main, in a "Technical Appendix" group at the end of the nav — both validate
+machinery/methodology rather than reporting a result, so they're placed
+after the actual research rather than up front. See dashboard/app.py on
+main for that version's own docstring.
 """
 from pathlib import Path
 
@@ -47,8 +45,6 @@ st.set_page_config(
     initial_sidebar_state="expanded",
 )
 
-import _bootstrap_data  # noqa: E402,F401 -- populates Data/ before any page reads it
-
 PAGES_DIR = Path(__file__).parent / "pages"
 
 overview = st.Page(
@@ -57,10 +53,90 @@ overview = st.Page(
     icon=":material/rocket_launch:",
     default=True,
 )
+pipeline_health = st.Page(
+    PAGES_DIR / "00_pipeline_health.py",
+    title="Pipeline Health",
+    icon=":material/monitor_heart:",
+)
+term_structure = st.Page(
+    PAGES_DIR / "01_term_structure.py",
+    title="Term Structure",
+    icon=":material/show_chart:",
+)
+ohlcv_coverage = st.Page(
+    PAGES_DIR / "02_ohlcv_coverage.py",
+    title="OHLCV Coverage",
+    icon=":material/candlestick_chart:",
+)
+volatility = st.Page(
+    PAGES_DIR / "03_volatility.py",
+    title="Volatility",
+    icon=":material/ssid_chart:",
+)
+macro = st.Page(
+    PAGES_DIR / "04_macro.py",
+    title="Macro",
+    icon=":material/public:",
+)
+continuous_curve = st.Page(
+    PAGES_DIR / "05_continuous_curve.py",
+    title="Continuous Curve",
+    icon=":material/timeline:",
+)
 volatility_estimators = st.Page(
     PAGES_DIR / "06_volatility_estimators.py",
     title="Volatility Estimators",
     icon=":material/query_stats:",
+)
+momentum_performance = st.Page(
+    PAGES_DIR / "07_momentum_performance.py",
+    title="Momentum",
+    icon=":material/trending_up:",
+)
+breakout_performance = st.Page(
+    PAGES_DIR / "08_breakout_performance.py",
+    title="Breakout",
+    icon=":material/bolt:",
+)
+crossover_performance = st.Page(
+    PAGES_DIR / "09_crossover_performance.py",
+    title="Crossover",
+    icon=":material/candlestick_chart:",
+)
+short_term_reversal_performance = st.Page(
+    PAGES_DIR / "10_short_term_reversal_performance.py",
+    title="Short-Term Reversal",
+    icon=":material/swap_horiz:",
+)
+carry_performance = st.Page(
+    PAGES_DIR / "11_carry_performance.py",
+    title="Carry",
+    icon=":material/percent:",
+)
+xs_momentum_performance = st.Page(
+    PAGES_DIR / "12_xs_momentum_performance.py",
+    title="Cross-Sectional Momentum",
+    icon=":material/leaderboard:",
+)
+value_performance = st.Page(
+    PAGES_DIR / "16_value_performance.py",
+    title="Value",
+    icon=":material/sell:",
+)
+seasonality_performance = st.Page(
+    PAGES_DIR / "23_seasonality_performance.py",
+    title="Seasonality",
+    icon=":material/calendar_month:",
+)
+relative_value_performance = st.Page(
+    PAGES_DIR / "26_relative_value_performance.py",
+    title="Relative Value",
+    icon=":material/compare_arrows:",
+)
+other_signal_families = st.Page(
+    PAGES_DIR / "21_other_signal_families.py",
+    title="Other Signal Families (Summary)",
+    icon=":material/summarize:",
 )
 portfolio_performance = st.Page(
     PAGES_DIR / "13_portfolio_performance.py",
@@ -110,6 +186,14 @@ multi_strategy_portfolio = st.Page(
 
 nav = st.navigation({
     "Overview": [overview],
+    "Monitoring": [pipeline_health],
+    "Coverage": [term_structure, ohlcv_coverage, volatility, macro, continuous_curve],
+    "Strategy Performance": [
+        momentum_performance, breakout_performance, crossover_performance,
+        short_term_reversal_performance, carry_performance, xs_momentum_performance,
+        value_performance, seasonality_performance, relative_value_performance,
+        other_signal_families,
+    ],
     "Single Strategy Portfolios": [trend_book_performance, carry_book_performance, seasonality_book_performance],
     "Multi-Strategy Portfolios": [multi_strategy_portfolio],
     "Macro Data": [macro_explorer],
