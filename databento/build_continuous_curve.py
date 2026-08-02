@@ -17,6 +17,12 @@ from pathlib import Path
 
 import pandas as pd
 
+# Same cp1252/non-ASCII-path guard as databento_transform.py -- cheap and
+# consistent with every research/*.py script's own convention, even though
+# this module's own print statements don't currently include a full path.
+if hasattr(sys.stdout, "reconfigure"):
+    sys.stdout.reconfigure(encoding="utf-8")
+
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent / "src"))
 from data.continuous_curve import build_continuous_curve  # noqa: E402
 

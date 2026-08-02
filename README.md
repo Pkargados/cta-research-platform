@@ -4,9 +4,9 @@
 
 A systematic futures research platform spanning 42 markets across commodities,
 FX, rates, and equity indices — built on a self-collected, two-source daily
-data pipeline, seven independently-researched signal families, and a
-covariance-aware portfolio construction layer with rigorous overfitting
-controls.
+data pipeline, nine independently-researched signal families (each matched
+directly against its source paper), and a covariance-aware portfolio
+construction layer with rigorous overfitting controls.
 
 This README describes what's actually built and validated today. Results are
 reported honestly, including where signals are weak or mixed — the platform is
@@ -36,12 +36,15 @@ The foundation is a real market-data pipeline, not a single downloaded CSV:
   that silently distorts historical returns.
 - **Macro overlays** (yield curve, CPI, GSCPI, VIX, trade-policy uncertainty)
   feeding the Value signal and a point-in-time-correctness QA layer.
-- An **18-page Streamlit dashboard** covering data QA, per-signal strategy
-  performance, portfolio-construction health, and macro exploration.
+- A **26-page Streamlit dashboard** organized into QA, per-signal strategy
+  performance, single-strategy portfolios, portfolio construction, macro
+  exploration, and a "Technical Appendix" group where estimator choices
+  (volatility, correlation, covariance) are compared head-to-head rather than
+  asserted.
 
 ## Signal research
 
-Seven signal families, each implemented as pure functions with no optimizer
+Nine signal families, each implemented as pure functions with no optimizer
 dependency, matched directly against their source papers rather than built
 from memory:
 
@@ -54,11 +57,15 @@ from memory:
 | Carry | Koijen-Moskowitz-Pedersen-Vrugt (2018) | Rank-weighted cross-sectional carry and carry-timing, matched to the paper's exact monthly-rebalance construction |
 | Cross-sectional momentum | Asness-Moskowitz-Pedersen (2013) | Rank-weighted 12-month-skip-1-month momentum |
 | Value | Asness-Moskowitz-Pedersen (2013) | Asset-class-specific construction — 5-year return default, yield-change for bonds, PPP-adjusted real FX return for currencies |
+| Seasonality | Keloharju-Linnainmaa-Nyberg (2014) | Same-calendar-month effect, rank-weighted cross-sectional, on a hypothesis-driven (not performance-driven) 7-asset universe with a real physical seasonal-demand driver |
+| Classic cointegration / relative value | Rolling Engle-Granger + 3 hedge-ratio construction groups (fixed-beta, rolling-OLS, Kalman) | 7 pairs (WTI-Brent, Gold-Silver, Corn-Wheat, RBOB-HeatingOil, a 3:2:1 crack spread, and more), pooled into one Book |
 
 **Every backtest enforces the same discipline**: strict train / validation /
 test splits with the test period touched once, no signal-spec selection based
 on its own performance, and every signal `shift(1)`'d before being used to
-trade "today." Results below are gross Sharpe, train / validation / test:
+trade "today." Results below are gross Sharpe, train / validation / test
+(Relative Value's number is different in kind — see the note below the
+table):
 
 | Family | Headline spec | Train | Validation | Test |
 |---|---|---:|---:|---:|
@@ -67,19 +74,33 @@ trade "today." Results below are gross Sharpe, train / validation / test:
 | Carry (cross-sectional, 1-12mo) | Koijen et al. Eq. 19 | 0.33 | -0.36 | -0.06 |
 | Cross-sectional momentum | MOM2-12 | -0.34 | -1.39 | 0.04 |
 | Value | Negative-5yr-return, asset-class-adjusted | -0.01 | 0.13 | -0.69 |
+| Seasonality | Same-calendar-month | 0.10 | -1.04 | 0.18 |
+| Relative value | Pooled Book, 4-of-7-pair, **net-of-cost** | -0.25 | 0.34 | 0.51 |
 
-Momentum is the one consistently positive family; the rest are genuinely
-mixed. That's reported as found — the platform's value is in the discipline
-that produced these numbers, not in engineering a cleaner-looking table.
+Momentum is the one consistently positive standalone family; most of the rest
+are genuinely mixed. Relative value is a different, arguably more interesting
+result: most individual pairs are weak-to-negative standalone (their own
+rolling Engle-Granger diagnostic found weak cointegration evidence too — 3-11%
+of rolling windows, not the strong case a naive full-sample test would
+suggest), yet the pooled, cost-aware Book is positive in validation and test.
+That's a genuine diversification effect, not a stronger individual signal —
+and it only shows up because the platform tests pairs individually *and*
+pooled, rather than reporting whichever framing looks better. All of this is
+reported as found — the platform's value is in the discipline that produced
+these numbers, not in engineering a cleaner-looking table.
 
 ## Single Strategy Portfolios
 
-The 42-market research universe is now a defined two-Book investment mandate
-— directional trend and curve-based carry, chosen because trend is the one
-consistently-positive family above and carry has genuine (if mixed) evidence,
-while relative-value stays research-only until its own trading signal exists
-(only a rolling-window cointegration foundation today, no z-score entry/exit
-built yet).
+The 42-market research universe is a defined two-Book investment mandate —
+directional trend and curve-based carry, chosen because trend is the one
+consistently-positive family above and carry has genuine (if mixed) evidence.
+Relative value has since been built out into a fully realized third Book
+(z-score entry/exit, per-pair hedge-ratio selection, pooled position sizing —
+not just the cointegration diagnostic) with a genuinely positive net-of-cost
+result on its own. It's a strong candidate for the live mandate, but hasn't
+been formally folded in yet — the platform draws a clear line between "built
+and validated" and "adopted," and doesn't blur it just because a result looks
+good.
 
 Each Book's construction was chosen by a small, validation-selected bake-off
 across economically distinct alternatives — not a numerical hyperparameter
@@ -130,6 +151,24 @@ confirmed at the portfolio level too rather than assumed to transfer.
   for adoption over the flat default calibration — a result that held up
   under two independent statistical tests rather than being taken on faith
   from the first one.
+- **Covariance-estimator upgrades tested and rejected when the data didn't
+  back them up** — not added on the strength of being more sophisticated.
+  The Gerber statistic (Gerber et al., 2021) was built as a candidate
+  replacement for the default Ledoit-Wolf shrinkage covariance, evaluated
+  first as a risk-forecast-accuracy diagnostic (Ledoit-Wolf won on QLIKE),
+  then escalated — per its own explicit gate — to a full net-of-cost,
+  Book-level comparison across seven live Books anyway, since forecast
+  accuracy isn't the only channel a covariance estimator could help through.
+  Still mixed with no clean rule (helps Carry's validation, hurts Value and
+  an integrated Value+Momentum Book) — Ledoit-Wolf remains the default
+  everywhere. Similarly, **DCC-GARCH sleeve risk-parity** (dynamic
+  conditional correlation, not just a dynamic covariance *forecast*) was
+  built and compared against a plain EWMA-weighted covariance for combining
+  Trend and Carry: both converge to nearly the same weight split and the same
+  Sharpe improvement over a naive combination, so the simpler, far cheaper
+  EWMA estimator is what's actually used in the live-adjacent combination —
+  DCC-GARCH's real edge only shows up with 3+ sleeves, where it's kept as an
+  available option, not the default.
 
 ## References
 
@@ -146,6 +185,9 @@ source paper, not implemented from memory or a secondary summary:
 | Asness, C., Moskowitz, T., & Pedersen, L. H. (2013), "Value and Momentum Everywhere," *Journal of Finance* | Cross-sectional momentum and Value signals (both from this paper) |
 | Fitzgibbons, S., Hecht, J., McQuinn, J., & Serban, A. (2017), "Portfolio Construction Matters," AQR | Mix-vs-integrate comparison for combining Value and cross-sectional momentum |
 | Bailey, D. H., Borwein, J., López de Prado, M., & Zhu, Q. J. (2017), "The Probability of Backtest Overfitting," *Journal of Computational Finance* 20(4) | Combinatorially Symmetric / Purged Cross-Validation (CPCV), used to test whether hyperparameter tuning generalizes across history rather than overfitting one window |
+| Keloharju, M., Linnainmaa, J., & Nyberg, P. (2014), "Common Factors in Return Seasonalities," *Journal of Financial Economics* | Same-calendar-month seasonality signal |
+| Li, Liu, Miao, & Tse (2023), "Return Seasonality in Commodity Futures" | Background for the seasonality signal family's construction and asset-scope decisions |
+| Gerber, S., Markowitz, H., Ernst, P., Miao, Y., Javid, B., & Sargen, P. (2021), "The Gerber Statistic: A Robust Co-Movement Measure for Portfolio Construction," *Journal of Portfolio Management* | Candidate covariance estimator, evaluated against Ledoit-Wolf and not adopted |
 
 Background reading, informing design but not yet driving a shipped feature:
 
@@ -168,14 +210,14 @@ research/        # driver scripts — where new signal/portfolio research is act
 dashboard/       # Streamlit QA + strategy-performance + portfolio-construction pages
 jobs/            # scheduled data-refresh entry points (Windows Task Scheduler)
 databento/       # thin entry-point scripts: job submission/retry, raw-archive backup, transform/curve-build drivers
-tests/           # pytest, 246+ tests
+tests/           # pytest, 360+ tests
 ```
 
 ## Testing
 
 In a systematic trading platform, an untested backtest is a liability, not a
 convenience: a single silent lookahead bug or an unhandled NaN can make a
-strategy look profitable when it isn't. The 246-test suite (`tests/`, one
+strategy look profitable when it isn't. The 360-test suite (`tests/`, one
 file per `src/` module) exists to make that class of error structurally
 hard to ship:
 
@@ -201,20 +243,16 @@ hard to ship:
 | Core OHLCV data pipeline (41 of 42 assets) | Done, production quality |
 | Term structure / carry data (Databento) | Done for 33 of 38 core assets (real spreads); 4 ICE softs on a labeled proxy |
 | Continuous futures curves (42 assets) | Done — ratio back-adjusted, roll dates marked |
-| Signal research (7 families) | Done, see table above |
-| Portfolio mandate | Decided — two-Book: Trend + Carry, Relative Value deferred until its own trading signal exists |
-| Single Strategy Portfolios (Trend Book, Carry Book) | Built and validation-selected, see table above |
-| Portfolio construction (Ledoit-Wolf, optimizer, Book/Allocator) | Machinery built; first full pass was a 6-Book pilot, since superseded by the two selected Single Strategy Portfolios |
-| Book-level vol-targeting (GJR-GARCH vs. EWMA) | Tested and decided — GARCH adopted for the two selected Books, opt-in, other Books unchanged |
+| Signal research (9 families) | Done, see table above |
+| Portfolio mandate | Decided — two-Book: Trend + Carry. Relative Value is fully built and genuinely positive net-of-cost, a strong candidate for a third sleeve, not yet formally adopted into the live mandate |
+| Single Strategy Portfolios (Trend Book, Carry Book, Relative Value Book) | Built and validation-selected, see table above |
+| Portfolio construction (Ledoit-Wolf, optimizer, Book/Allocator) | Machinery built; first full pass was a 6-Book pilot, since superseded by the selected Single Strategy Portfolios |
+| Book-level vol-targeting (GJR-GARCH vs. EWMA) | Tested and decided — GARCH adopted for the selected Books, opt-in, other Books unchanged |
 | Hyperparameter tuning + overfitting controls (Bonferroni/FDR, CPCV/PBO) | Built and run across all 20 Books (sizing-parameter tuning only — construction selection uses a separate, smaller bake-off, see above) |
+| Covariance-estimator evaluation (Gerber statistic, DCC-GARCH sleeve risk-parity) | Both built and tested against the Ledoit-Wolf / EWMA defaults; neither showed a large enough edge to replace them, see Portfolio construction above |
 | Risk metrics (historical VaR / Expected Shortfall) | Built, portfolio-level |
 | Regime detection | Interface only, no classifier yet |
-| Live data / paper trading | Not started |
-
-Classic cointegration / relative-value spreads (Corn/Wheat, Gold/Silver,
-Brent/WTI) have a rolling-window Engle-Granger foundation but no trading
-signal yet — sequenced after the signal families and portfolio-construction
-work above.
+| Live data / paper trading | Not started — an automated weekly Databento refresh → transform → backtest pipeline is under active development |
 
 ## Getting started
 

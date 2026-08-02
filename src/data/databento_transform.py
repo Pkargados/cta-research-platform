@@ -64,6 +64,17 @@ from pathlib import Path
 import pandas as pd
 import polars as pl
 
+# This repo's own path contains non-ASCII characters (Greek "Υπολογιστής") --
+# on Windows' default console codepage (cp1252), any print() containing a
+# path built from __file__ crashes with UnicodeEncodeError. Every research/
+# *.py script already guards against this; this module (and
+# continuous_curve's sibling CLI) didn't, and it's a real crash, not
+# hypothetical -- found live when this module's own final status print hit
+# it after weekly_databento_pipeline.py called run() directly (not through
+# transform_databento.py's CLI wrapper).
+if hasattr(sys.stdout, "reconfigure"):
+    sys.stdout.reconfigure(encoding="utf-8")
+
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent.parent / "jobs"))
 from capture_term_structure import UNIVERSE, MONTH_CODES  # noqa: E402
 
