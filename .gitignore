@@ -52,3 +52,8 @@ databento/*.log
 # On-demand clone of the public dcc-garch-python package (data/garch_volatility.py)
 # -- cloned fresh wherever needed, not vendored into this repo's own history.
 .external/
+
+# Static chart exports (research/*_charts.py driver scripts) -- regenerated
+# binary PNGs, not source. Same treatment as Data/: the generating script is
+# tracked, its output isn't.
+/charts/

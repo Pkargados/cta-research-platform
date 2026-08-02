@@ -163,7 +163,7 @@ def _active_columns(alpha_df, returns_df, min_valid_frac=0.90):
     return [c for c in alpha_df.columns if has_alpha.get(c, False) and returns_valid_frac.get(c, 0.0) >= min_valid_frac]
 
 
-def build_book(name, alpha_df, returns, vol_estimator="ewma", cov_dict_builder=None, cost_bps=None):
+def build_book(name, alpha_df, returns, vol_estimator="ewma", cov_dict_builder=None, cost_bps=None, min_valid_frac=0.90):
     """`cov_dict_builder` defaults to `build_cov_dict` (Ledoit-Wolf, every
     existing caller's unchanged behavior) - overridable to any callable with
     the same `(returns, window, freq)` signature, e.g.
@@ -175,10 +175,17 @@ def build_book(name, alpha_df, returns, vol_estimator="ewma", cov_dict_builder=N
     behavior) - pass `backtest.costs.liquidity_tiered_cost_bps(...)` (same
     construction `research/tune_all_books.py` already uses) for a NET-of-cost
     Book, needed to tell a genuine turnover-driven cost saving apart from a
-    pure gross-Sharpe effect."""
+    pure gross-Sharpe effect.
+
+    `min_valid_frac` (added 2026-08-01, default 0.90 unchanged - every
+    existing caller's behavior is identical) - passed straight through to
+    `_active_columns`. Lower this to admit sparser-calendar columns (e.g. the
+    Relative Value sleeve's own lower-density pairs) into a single Book -
+    a diagnostic/exploratory knob, not a claim that a lower threshold is
+    generally preferable to the default."""
     if cov_dict_builder is None:
         cov_dict_builder = build_cov_dict
-    active = _active_columns(alpha_df, returns)
+    active = _active_columns(alpha_df, returns, min_valid_frac=min_valid_frac)
     alpha_active = alpha_df[active]
     train_std = alpha_active.loc[:TRAIN_END].stack().std()
     if not train_std or np.isnan(train_std) or train_std < 1e-12:

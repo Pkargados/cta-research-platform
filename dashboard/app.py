@@ -128,6 +128,11 @@ seasonality_performance = st.Page(
     title="Seasonality",
     icon=":material/calendar_month:",
 )
+relative_value_performance = st.Page(
+    PAGES_DIR / "26_relative_value_performance.py",
+    title="Relative Value",
+    icon=":material/compare_arrows:",
+)
 other_signal_families = st.Page(
     PAGES_DIR / "21_other_signal_families.py",
     title="Other Signal Families (Summary)",
@@ -186,7 +191,8 @@ nav = st.navigation({
     "Strategy Performance": [
         momentum_performance, breakout_performance, crossover_performance,
         short_term_reversal_performance, carry_performance, xs_momentum_performance,
-        value_performance, seasonality_performance, other_signal_families,
+        value_performance, seasonality_performance, relative_value_performance,
+        other_signal_families,
     ],
     "Single Strategy Portfolios": [trend_book_performance, carry_book_performance, seasonality_book_performance],
     "Multi-Strategy Portfolios": [multi_strategy_portfolio],
