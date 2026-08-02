@@ -4416,6 +4416,306 @@ covariance-estimator comparison table. Verified exception-free via
 
 ---
 
+### 11e. Fixed-income RV extensions — plan (2026-08-01)
+
+Three follow-on ideas from a later session than the one that built §11d above
+(that session extended the RV sleeve to 11 pairs, 5 active in the pooled
+Book, added `research/relative_value_charts.py`'s static tearsheet export,
+and fixed several stale tests — not yet backfilled into this file's own
+§11d text, a known documentation debt, logged here rather than silently
+compounded further). Per direct instruction, logged before any of the three
+is built, in this order:
+
+1. **SOFR futures calendar-spread carry.** `Data/term_structure.parquet` and
+   `Data/term_structure_spreads.parquet` already have real SOFR (3-month
+   SOFR, CME `SR3`) outright and calendar-spread data, 2018-05 to 2026-07
+   (spreads frozen at the same `SPREAD_DATA_END` = 2026-07-13 every other
+   real-quote asset uses) — never wired into any signal, because SOFR has no
+   core yfinance-based continuous price series (DATA_SCHEMA.md §1: "no
+   viable Yahoo continuous ticker"). That exclusion only ever applied to the
+   yfinance panel specifically — the real Databento per-contract data was
+   captured all along, just unused.
+2. **Monetary-policy basis** — compare the market's currently-priced SR3
+   futures-implied forward SOFR rate against the REALIZED daily SOFR rate
+   (`Data/overnight_fed_fund_rates_US.xlsx`'s SOFR/TGCR/EFFR/OBFR columns,
+   2018-04-present, currently completely unused — CLAUDE.md's Macro row only
+   ever flagged Fed Funds; this file has the actual secured repo rate too).
+   Tests a real, well-documented empirical question (are short-rate futures
+   biased predictors of the eventually-realized rate) mechanically, not a
+   discretionary Fed-policy view.
+3. **"Curve IPCA"** — combine Litterman-Scheinkman (1991)'s empirical finding
+   that ~98% of Treasury return variance reduces to 3 factors (level,
+   steepness, curvature) whose loadings are a smooth function of maturity,
+   with Kelly-Pruitt-Su (2018) IPCA's general characteristics-instrumented
+   latent-factor estimator plus its formal alpha-significance test. Proposed
+   instruments: maturity/duration (recovers L-S's own loadings), carry level
+   (already computed, and shown to be nearly uncorrelated across US_30Y/
+   UltraBond — 0.09 — despite ~0.97 return correlation, i.e. genuinely new
+   information L-S's pure-return model never had), realized vol (L-S found
+   curvature co-moves with implied vol). The trading signal is the estimated
+   alpha (`Gamma_alpha`), not the factors themselves — tests whether Rates
+   futures returns are fully explained by risk compensation for
+   duration/carry/vol exposure, or whether a real, rules-based residual
+   exists. Caveat logged up front, not after the fact: IPCA's published
+   asymptotics were validated on a 12,000+-stock cross-section; this
+   project's Rates universe (5 names, more once SOFR is wired in) is far
+   smaller, so this borrows IPCA's ESTIMATOR (characteristics -> loadings ->
+   factors -> explicit alpha test), not a claim that its statistical
+   guarantees transfer at this scale.
+
+Sequencing per direct instruction: build and test #1 first, report honestly
+before proceeding to #2/#3 — see the result entry immediately below once
+built.
+
+### 11e. SOFR futures calendar-spread carry — built and tested 2026-08-01
+
+**New**: `data.term_structure.build_databento_only_continuous_curve`/
+`build_databento_only_carry` — reuse `continuous_curve.build_continuous_curve`
+(roll detection + ratio back-adjustment) and `real_spread_carry` directly on
+SOFR's own `term_structure.parquet` outright rows, bypassing
+`load_front_contract_symbols` (which only covers assets in
+`continuous_futures.parquet`, and SOFR never will be — no viable Yahoo
+continuous ticker). `research/sofr_carry.py` is the driver. 11 new tests
+(`tests/test_term_structure.py`, 350 passing project-wide).
+
+**Real bug found and fixed before any backtest number was accepted, not
+after** (CLAUDE.md's own "investigate before accepting a number" discipline):
+SOFR's quoted calendar-spread `close` is on a DIFFERENT scale than its own
+outright close. Checked directly: on 2026-07-13 the SR3Z27-SR3Z28 spread
+quoted `close=-8.5`, but the two contracts' own outright closes (95.925,
+96.01) differ by exactly -0.085 — 1/100th of the quoted spread value. SOFR's
+combo instruments are quoted directly in basis points of rate, not the same
+"100 - rate" price-point units the outrights use — every other real-quote
+asset in this project's carry panel already has its spread and outright
+closes on the same scale (their carry values land in a sane 0.03%-1.4%
+annualized range without any correction). Without the fix, SOFR's carry came
+back with a nonsensical mean of -55% annualized (min -890%); fixed via
+`DATABENTO_ONLY_SPREAD_SCALE["SOFR"] = 0.01`, after which mean carry is
+-0.55% (std 0.74%), comparable in magnitude to US_2Y (mean 0.03%)/US_10Y
+(mean 1.08%). A genuinely different exchange quoting convention, not a
+transform-pipeline bug.
+
+**Continuous curve**: 2018-05-06 to 2026-07-31, 38 roll dates over ~8.2 years
+(~4.6/year — plausible for a mix of quarterly IMM and serial SR3 listings).
+Daily returns are tiny (std ~0.06%, max single-day move ~1.0%) with zero
+`>5%` days — no roll-jump artifacts, consistent with a short-rate future
+whose price (100 - rate) barely moves day to day. Carry: 2241 of 2453 dates
+valid (91% density, 2018-05-10 to 2026-07-13, the same `SPREAD_DATA_END`
+every other real-quote asset is frozen at). SOFR's own liquidity-tiered cost:
+1.00bp one-way (cheapest tier — consistent with its very high recent volume,
+500K+ contracts/day on the front months).
+
+**Two standalone (no cross-sectional peers) specs, monthly rebalancing, no
+headline pick** — `carry_timing_zero` (the paper's own ±1 direction) and
+`carry_timing_expanding_mean` (timed against SOFR's own expanding-mean carry,
+reusing `sector_pooled_expanding_mean` with a single-member "sector," not a
+new construction). **Result, gross/net Sharpe (train/validation/test)**:
+`carry_timing_zero` -0.32/-0.35, -1.14/-1.29, **+0.44/+0.43**;
+`carry_timing_expanding_mean` -0.96/-0.99, -1.14/-1.31, **+0.60/+0.58**.
+Turnover low (2.6x/3.6x annualized). Both specs: negative train/validation
+(validation spans 2020 COVID), positive test (2022+ rate-divergence regime)
+— the SAME pattern already documented for `carry_timing_zero`/
+`carry_timing_mean` on the existing 5-asset Rates cross-section (Phase 4's
+carry row: "carry underperforms in global recessions... turns solidly
+positive in test"). A real, internally consistent finding, not a fluke.
+
+**Pooled test: SOFR added as a 6th Rates-sector member** (local test copy of
+the sector map inside `research/sofr_carry.py` — `data.sectors.SECTORS`
+itself untouched, since every other caller scopes to the yfinance-based
+liquid universe SOFR was never part of). SOFR's own per-asset gross/net
+Sharpe within each pooled spec (train/validation/test): `carry1m`
+**+1.22/+1.08, +0.57/+0.50, +0.45/+0.41** — positive in ALL THREE periods,
+the most consistently positive of any of the 6 Rates-sector members'
+own carry1m Sharpe reported so far in this project (compare US_2Y
+-0.11/0.05/-0.00, US_5Y 0.49/-0.86/-0.06, US_10Y 0.23/-0.09/0.67, US_30Y
+0.24/0.62/0.06, UltraBond -0.12/-0.46/0.06 — Phase 8/carry investigation,
+2026-08-01). `carry1_12` -1.63/-1.98, +0.85/+0.84, +0.60/+0.59 (deeply
+negative train, volatile). `carry_timing_zero`/`carry_timing_mean` pooled
+results are close to but not identical to the standalone numbers above — a
+minor, explainable artifact of reindexing SOFR's own native trading-day
+calendar onto the broader Rates panel's date index, not a discrepancy in the
+signal construction itself.
+
+**Checked before reporting `carry1m`'s strong result as real, not an
+artifact** (same discipline as the RV sleeve's own bug-hunting): SOFR's rank
+within the 6-member cross-section is genuinely time-varying, not stuck at a
+fixed extreme — it lands at rank 1 (lowest carry, of 6) on 1130 of 2241
+valid dates (~50%), but visits every other rank a meaningful number of
+times too. SOFR does skew toward being the sector's persistently
+lowest-carry member (economically sensible — it's the shortest-duration
+instrument in the group, structurally different from the 2Y-30Y+Ultra
+intermediate/long bonds).
+
+**Real correction, caught by direct question, not found proactively**:
+SOFR's own per-asset `carry1m` Sharpe being positive in all three periods
+does NOT mean adding it improves the pooled Rates `carry1m` BOOK — checked
+directly and it's the opposite. Aggregate (`backtest_signal`, not
+per-asset) `carry1m` gross/net Sharpe, 5-member Rates (no SOFR) vs. 6-member
+(with SOFR): train 0.200/0.186 -> 0.189/0.175 (~flat); validation
+-0.237/-0.249 -> **-0.361/-0.376** (worse); test **0.145/0.128 -> -0.226/
+-0.243** (flips from positive to negative). Mechanism, not a bug:
+`carry1m`'s score for every member is `rank(C_i) - (N+1)/2`, computed over
+the WHOLE peer set — adding a 6th name reshuffles the relative rank (and
+therefore the long/short assignment) of the other five members on many
+dates, not just adding an independent slice next to them. **Conclusion:
+SOFR does not currently improve the pooled Rates `carry1m` book — its
+standalone/isolated result stands on its own (useful input for items #2/#3
+below) but pooling it into the existing 5-name cross-section as-is is NOT
+adopted.**
+
+**Follow-up, per direct question — which of the 6 Rates members actually
+have net-of-cost `carry1m` Sharpe positive in ALL THREE periods?** Not just
+SOFR: checked precisely (not from memory) on the SAME 6-member cross-section
+- US_10Y (0.171/0.076/0.306), US_30Y (0.282/0.476/0.030), and SOFR
+(1.078/0.502/0.407) all qualify; US_2Y/US_5Y/UltraBond do not. US_30Y's test
+Sharpe (+0.03) is thin enough to call barely-positive, not robust. These
+per-asset numbers are specific to the 6-member peer group - the same three
+assets' numbers differ (sometimes substantially) in the original 5-member
+(no SOFR) grouping, per the rank-interdependence finding just above.
+
+**Single-strategy Book test: US_10Y + US_30Y + SOFR, `carry1m`, own local
+3-member cross-section** (`research/rates_carry_book.py`) - does a REAL
+covariance-aware optimizer (`portfolio.book.Book` via
+`single_strategy_portfolios.build_book` - Ledoit-Wolf, vol targeting,
+position inertia, the same calibration every other Book in this project
+reuses) produce a genuinely good COMBINED portfolio from just these 3, not
+just 3 individually-decent per-asset Sharpe numbers standing next to each
+other. **Real, materially different finding**: SOFR fails the Book's
+standard 90% return-density gate (only 44.7% - its real futures history only
+starts 2018-05, versus the broader Rates panel's much longer date range) and
+is correctly excluded, not forced in - this ran as a 2-asset Book (US_10Y +
+US_30Y only). Net Sharpe: train +0.375 (n=307), validation +1.521 (n=55),
+**test -0.266 (n=192)** - turnover 0.054/rebalance, max DD -3.8%. **Test
+flips negative** despite both legs looking individually positive in test
+under the naive per-asset framing above - a real, important distinction:
+per-asset Sharpe (`backtest_signal_per_asset`, no covariance awareness) does
+not guarantee a good result once vol-targeting, position inertia, and real
+transaction costs are applied jointly to the actual optimized 2-leg
+portfolio. Forced SOFR in anyway (relaxed `min_valid_frac` to 0.40, same
+precedent as the RV sleeve's own sparse-pair checks): train Sharpe balloons
+to 2.209 but on only 25 observations (below-threshold, not trustworthy -
+noise, not signal); total valid rebalance dates roughly halve (557 -> 263);
+test Sharpe barely moves (-0.266 -> -0.247). **Conclusion: neither the
+2-asset nor the SOFR-forced 3-asset version of this Book is a working
+portfolio** - test is negative either way once run through a real optimizer,
+a materially more cautious conclusion than the per-asset table alone
+implied.
+
+### 11e. Monetary-policy basis — built and tested 2026-08-01 (item #2)
+
+**New**: `data.macro.load_overnight_rate` (9 new tests in `tests/
+test_macro.py`) - loads any of `EFFR/OBFR/BGCR/SOFR/TGCR/SOFRAI` from
+`Data/overnight_fed_fund_rates_US.xlsx`, previously completely unused
+(CLAUDE.md's Macro row only ever flagged Fed Funds; this file has the
+actual realized secured-repo rate too - SOFR itself, 2018-04 to present).
+`research/sofr_monetary_policy_basis.py` is the driver.
+
+**Construction and sign, fixed BEFORE looking at any backtest result**
+(CLAUDE.md Hard Rule 1): `implied_rate_t = 100 - SR3 front contract's RAW
+(not back-adjusted) close` (the genuine point-in-time market-implied
+forward rate - the back-adjusted series is for return construction only,
+same distinction already established for carry); `basis_t = implied_rate_t
+- realized_rate_t`. `signal_t = sign(basis_t)` - LONG SR3 when a hike is
+priced, SHORT when a cut is priced - betting that whichever move is
+currently priced in is somewhat overstated relative to what eventually gets
+realized, per the general, well-established fixed-income principle that
+forward/futures-implied rates embed a term/risk premium (the same broad
+logic behind bond risk premia, and behind this project's own Carry family,
+just applied here to a genuinely new input - the realized-rate series - not
+a calendar spread between two futures). Two parallel specs, no headline pick
+(Carry's own established discipline): `basis_timing` (±1, unscaled - the
+same Rule 5 exception already logged for Carry) and `basis_continuous`
+(basis z-scored over a 252-day window - a monetary-policy regime persists
+far longer than a commodity mean-reversion spread's half-life, hence a much
+longer window than the RV sleeve's own 63-day default - then vol-targeted).
+Both at daily AND weekly rebalancing (RV sleeve's own precedent - daily as
+the a-priori default, weekly a genuine second spec, not selected after
+comparing).
+
+**Result: weak-to-negative across all four spec/frequency combinations, no
+clean winner.** Net Sharpe (train/validation/test): `basis_timing` daily
+-0.650/-2.279/-0.271; `basis_continuous` daily -1.080/-2.117/-0.021;
+`basis_timing` weekly -0.150/-1.274/-0.261; `basis_continuous` weekly
+-0.883/-0.978/**+0.376** (the only positive test cell, and the weakest
+turnover-adjusted). Train and validation are negative in all four
+combinations. **Explicitly not done: flipping the sign after seeing this
+result.** Since flipping the sign just flips these Sharpes' signs, doing so
+now would be exactly the look-ahead Rule 1 exists to prevent - the honest
+conclusion is that THIS construction, as specified in advance, does not show
+a working signal. Same category as short-term reversal and breakout's own
+honestly-reported negative results.
+
+### 11e. Curve IPCA — built and tested 2026-08-01 (item #3)
+
+**New**: `src/signals/ipca.py` (Kelly-Pruitt-Su 2018 IPCA, implemented
+directly in numpy - no maintained Python IPCA package is installed in this
+environment, checked directly, same convention already used for the Kalman
+filter/Gerber statistic). 8 new tests (`tests/test_ipca.py`).
+`research/curve_ipca.py` is the driver, applied to the same 6-name Rates
+cross-section as items #1/#2.
+
+**Scale caveat, logged in the plan before any of this was built, not after**:
+this is a SMALL-N adaptation (6 assets), not the paper's own 12,000+-stock
+setting. The estimator uses the paper's own explicitly-sanctioned
+approximation (Section 2.1.1: replace the per-date Rayleigh-quotient
+denominator with a constant, giving `Gamma_beta` = the top-K eigenvectors of
+the managed-portfolios' own second-moment matrix, F = the projection onto
+them) rather than the full per-date-reweighted ALS - a disclosed
+simplification, not a claim of exact equivalence. `Gamma_alpha` is estimated
+by extending the same approximation (the time-average of the restricted
+model's own managed-portfolio residual, GMM-style), tested via a residual
+wild-bootstrap in the same spirit as the paper's own (Section 3.1.1).
+
+**One real bug found and fixed before trusting any number, caught by a
+built-in sanity check, not found by accident**: `managed_portfolio_residuals`
+reconstructed the fitted value as `ZZ_t @ Gamma_beta @ F_t`, inconsistent
+with how `F_t` was actually derived (`F_t = X_t @ Gamma_beta`, with NO
+`ZZ_t` weighting - the whole point of the "approximate the denominator with
+a constant" simplification is that `ZZ_t` drops out of the factor-fitting
+step entirely). Caught by a direct sanity property that must always hold:
+when K=L (no dimension reduction), the residual should be EXACTLY zero -
+the buggy version gave residuals in the hundreds/thousands instead. Fixed,
+and pinned by a permanent regression test
+(`test_managed_portfolio_residuals_are_zero_when_k_equals_l`).
+
+Characteristics: duration (static, labeled approximate market-convention
+values - US_2Y 1.9y, US_5Y 4.5y, US_10Y 7.8y, US_30Y 17.5y, UltraBond 22.0y,
+SOFR 0.25y - not fitted from data, same "label it, don't fake it"
+discipline as Carry's ICE-softs proxy), carry (already-built real carry
+panel), realized vol (63-day rolling, close-to-close - not Yang-Zhang, for
+uniform treatment including SOFR). Cross-sectionally rank-transformed to
+[-0.5, 0.5] per date (IPCA's own convention, Kelly-Pruitt-Su Section 4 - a
+different scale from this project's own `cross_sectional_rank`, re-derived
+per CLAUDE.md Rule 7) plus a constant column. K=2 factors.
+
+**Result: total R² (managed-portfolio space, K=2) = 99.18%; the first factor
+alone explains 90.3% of that** - a genuine cross-check, not assumed: this
+lines up with Litterman-Scheinkman's own "Level" factor explaining ~89.5% of
+variance in their paper, a reassuring sign this small-N adaptation is
+behaving sensibly. **`Gamma_alpha` bootstrap test: p=0.872 - not
+significant.** `Gamma_alpha` itself is essentially zero on every
+characteristic (0.0002 / -0.0 / -0.0002 / 0.0 for duration/carry/vol/const).
+Backtested the (statistically insignificant) alpha-implied signal anyway,
+per this project's "test honestly regardless of expected significance"
+discipline: net Sharpe train +0.311, validation +0.095, test **-0.656** -
+weak and not exploitable, consistent with (not contradicting) there being no
+real alpha to trade. **Conclusion: the Rates cross-section's returns are
+well-explained by risk exposure to duration/carry/vol - no evidence of
+tradeable residual mispricing.** A genuine negative finding, same category
+as several other honestly-reported negative results in this project
+(short-term reversal, breakout, XSMOM).
+
+**All three planned items (#1 SOFR carry, #2 monetary-policy basis, #3 Curve
+IPCA) are now built and tested.** Net result across the fixed-income-RV
+extension as a whole: SOFR calendar-spread carry is the one piece with a
+real, if narrow, positive signature (standalone test-period Sharpe positive,
+and one of three Rates members with all-periods-positive `carry1m`) but does
+not improve the existing pooled Rates Book; the monetary-policy basis and
+Curve IPCA constructions are both honest negatives. Nothing from this
+extension is adopted into a live Book as of this entry.
+
+---
+
 ## Integration point: port congestion signal
 
 Not a phase with its own number — this is a cross-cutting note. If/when the Port

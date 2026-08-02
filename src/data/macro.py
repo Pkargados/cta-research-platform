@@ -55,3 +55,27 @@ def load_cpi() -> pd.DataFrame:
         if country in df.columns:
             df[country] = df[country].ffill(limit=limit)
     return df
+
+
+OVERNIGHT_RATE_TYPES = ("EFFR", "OBFR", "BGCR", "SOFR", "TGCR", "SOFRAI")
+
+
+def load_overnight_rate(rate_type: str = "SOFR", data_dir=None) -> pd.Series:
+    """One daily realized overnight-rate series from `overnight_fed_fund_rates_US.
+    xlsx`'s `Rate Type` column (NY Fed's own published reference rates, 2018-04 to
+    present for SOFR/BGCR/TGCR, back to 2000 for EFFR). `rate_type='SOFR'` is the
+    actual realized secured-repo rate - collected alongside Fed Funds (CLAUDE.md's
+    Macro row previously only flagged Fed Funds as "collected, unused"; this file
+    has the real repo rate too, still unused until now).
+
+    Units: percent (e.g. 4.15, not 0.0415) - same convention as `load_yield_curve`,
+    and the natural scale to compare directly against a SOFR future's own
+    `100 - price` implied rate (also percent by construction)."""
+    data_dir = Path(data_dir) if data_dir else DATA_DIR
+    df = pd.read_excel(data_dir / "overnight_fed_fund_rates_US.xlsx")
+    sub = df[df["Rate Type"] == rate_type][["Effective Date", "Rate (%)"]].copy()
+    sub["Effective Date"] = pd.to_datetime(sub["Effective Date"])
+    series = sub.set_index("Effective Date")["Rate (%)"].sort_index()
+    series.index.name = "date"
+    series.name = rate_type
+    return series[~series.index.duplicated(keep="last")]
