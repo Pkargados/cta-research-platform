@@ -84,3 +84,47 @@ def test_load_yield_curve_indexed_by_date_and_sorted(tmp_path, monkeypatch):
 
 def test_quarterly_cpi_countries_is_aud_only_with_limit_two():
     assert macro.QUARTERLY_CPI_COUNTRIES == {"AUD": 2}
+
+
+def _write_overnight_rates_xlsx(tmp_path, rows):
+    df = pd.DataFrame(rows)
+    path = tmp_path / "overnight_fed_fund_rates_US.xlsx"
+    df.to_excel(path, index=False)
+    return path
+
+
+def test_load_overnight_rate_filters_by_rate_type_and_sorts(tmp_path, monkeypatch):
+    monkeypatch.setattr(macro, "DATA_DIR", tmp_path)
+    dates = pd.to_datetime(["2020-01-03", "2020-01-02", "2020-01-01"])
+    rows = {
+        "Effective Date": list(dates) + [pd.Timestamp("2020-01-01")],
+        "Rate Type": ["SOFR", "SOFR", "SOFR", "EFFR"],
+        "Rate (%)": [1.60, 1.55, 1.50, 1.58],
+    }
+    _write_overnight_rates_xlsx(tmp_path, rows)
+
+    sofr = macro.load_overnight_rate("SOFR")
+    assert sofr.index.is_monotonic_increasing
+    assert sofr.tolist() == [1.50, 1.55, 1.60]
+    assert sofr.name == "SOFR"
+
+    effr = macro.load_overnight_rate("EFFR")
+    assert effr.tolist() == [1.58]
+
+
+def test_load_overnight_rate_keeps_last_on_duplicate_dates(tmp_path, monkeypatch):
+    monkeypatch.setattr(macro, "DATA_DIR", tmp_path)
+    rows = {
+        "Effective Date": [pd.Timestamp("2020-01-01"), pd.Timestamp("2020-01-01")],
+        "Rate Type": ["SOFR", "SOFR"],
+        "Rate (%)": [1.50, 1.55],  # a same-day revision - keep the later row
+    }
+    _write_overnight_rates_xlsx(tmp_path, rows)
+
+    sofr = macro.load_overnight_rate("SOFR")
+    assert len(sofr) == 1
+    assert sofr.iloc[0] == 1.55
+
+
+def test_overnight_rate_types_includes_sofr_and_effr():
+    assert set(macro.OVERNIGHT_RATE_TYPES) >= {"SOFR", "EFFR"}

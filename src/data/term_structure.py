@@ -258,6 +258,75 @@ def build_carry_panel(included_assets, data_dir=None) -> tuple:
     return carry, is_proxy
 
 
+def build_databento_only_continuous_curve(asset: str, data_dir=None) -> pd.DataFrame:
+    """Continuous back-adjusted curve for an asset with real Databento per-contract
+    data but NO core yfinance-based continuous series (currently: SOFR only - see
+    DATA_SCHEMA.md §1, "no viable Yahoo continuous ticker exists"). Reuses
+    `continuous_curve.build_continuous_curve` directly on term_structure.parquet's
+    own outright rows for this asset - same roll-detection (volume crossover) and
+    ratio back-adjustment logic every other asset's continuous series is built
+    from (CLAUDE.md Rule 6), just sourced from Databento outrights instead of the
+    yfinance-backed panel `load_front_contract_symbols` reads. That exclusion from
+    the core panel was about the yfinance ticker specifically - the real
+    per-contract data needed for a roll-rule/back-adjustment construction was
+    captured all along via `jobs/capture_term_structure.py`.
+
+    Returns the same shape as `continuous_curve.build_continuous_curve`: front_
+    contract_symbol, is_roll_date, raw_open/high/low/close, volume, adj_open/
+    high/low/close - indexed by date.
+    """
+    from data.continuous_curve import build_continuous_curve
+
+    outrights = load_outrights(data_dir)
+    asset_df = outrights[outrights["asset"] == asset]
+    if asset_df.empty:
+        raise ValueError(f"no term_structure.parquet rows for asset={asset!r}")
+    return build_continuous_curve(asset_df)
+
+
+DATABENTO_ONLY_SPREAD_SCALE = {
+    # SOFR's own quoted calendar-spread `close` is on a DIFFERENT scale than its
+    # outright `close` - checked directly, not assumed: on 2026-07-13, the
+    # SR3Z27-SR3Z28 spread quoted close=-8.5, but the two outrights' own closes
+    # were 95.925 and 96.01 (a genuine difference of -0.085, exactly 1/100th of
+    # the quoted spread value). SOFR's calendar spreads are quoted directly in
+    # basis points of rate (1 tick = 0.01 price point = 1bp), not in the same
+    # "100 - rate" price-point units the outrights use - every other real-quote
+    # asset in this project's carry panel (Treasuries, commodities) has its
+    # spread and outright closes on the SAME scale, confirmed by their carry
+    # values already landing in a sane 0.03%-1.4% annualized range; SOFR's did
+    # not (mean -55% annualized, min -8.9x) until this scaling was applied,
+    # which brings it in line (mean -0.55%, comparable in magnitude to US_2Y/
+    # US_10Y). A genuinely different exchange quoting convention, not a bug in
+    # the transform pipeline.
+    "SOFR": 0.01,
+}
+
+
+def build_databento_only_carry(asset: str, data_dir=None) -> pd.Series:
+    """Real-quote carry (see module docstring's formula) for a Databento-only asset
+    (see `build_databento_only_continuous_curve`) - always the real-spread path,
+    never the ICE proxy, since this asset has genuine exchange-quoted calendar
+    spreads (checked directly for SOFR: real spread rows 2018-05-07 to
+    SPREAD_DATA_END). Front-contract assignment comes from this function's own
+    continuous-curve construction rather than `load_front_contract_symbols`
+    (which only covers assets in `continuous_futures.parquet`).
+
+    Rescales this asset's own spread `close` column by `DATABENTO_ONLY_SPREAD_SCALE`
+    (default 1.0 - identity - for any asset not listed there) before computing
+    carry, since a combo instrument's quoting convention isn't guaranteed to share
+    its outright's own price-point scale - see that dict's own docstring for SOFR's
+    confirmed 100x mismatch."""
+    front_symbols = build_databento_only_continuous_curve(asset, data_dir)["front_contract_symbol"]
+    spreads = load_real_spreads(data_dir)
+    scale = DATABENTO_ONLY_SPREAD_SCALE.get(asset, 1.0)
+    if scale != 1.0:
+        spreads = spreads.copy()
+        spreads.loc[spreads["asset"] == asset, "close"] *= scale
+    outrights = load_outrights(data_dir)
+    return real_spread_carry(asset, front_symbols, spreads, outrights)
+
+
 def compare_real_vs_proxy_spread_error(asset: str, front_symbols: pd.Series, spreads: pd.DataFrame, outrights: pd.DataFrame) -> pd.Series:
     """For a REAL-quote asset only: measures how far the back-differenced proxy
     (near_outright_close - far_outright_close) would have been from the real quoted
